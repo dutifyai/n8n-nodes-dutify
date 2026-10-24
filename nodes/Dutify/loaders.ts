@@ -32,15 +32,24 @@ export async function getWorkspaceOptions(
 
 /* ---------- workspace context (spaces, lists, statuses, members, task types) ---------- */
 
+interface ContextCustomField {
+	identifier: string;
+	name: string;
+	type?: string | null;
+}
 interface ContextList {
+	identifier?: string;
 	name: string;
 	statuses?: string[] | null;
+	customFields?: ContextCustomField[] | null;
 }
 interface ContextFolder {
+	identifier?: string;
 	name: string;
 	lists?: ContextList[] | null;
 }
 interface ContextSpace {
+	identifier?: string;
 	name: string;
 	lists?: ContextList[] | null;
 	folders?: ContextFolder[] | null;
@@ -117,6 +126,64 @@ export function taskTypeOptions(context: WorkspaceContext): INodePropertyOptions
 	return byName(context.taskTypes ?? []);
 }
 
+/* ---------- identifier pickers (structure resources take identifiers, not names) ---------- */
+
+export function spaceIdOptions(context: WorkspaceContext): INodePropertyOptions[] {
+	return (context.spaces ?? [])
+		.filter((s) => s.identifier)
+		.map((s) => ({ name: s.name, value: s.identifier as string }));
+}
+
+export function folderIdOptions(context: WorkspaceContext): INodePropertyOptions[] {
+	return (context.spaces ?? []).flatMap((s) =>
+		(s.folders ?? [])
+			.filter((f) => f.identifier)
+			.map((f) => ({ name: `${s.name} / ${f.name}`, value: f.identifier as string })),
+	);
+}
+
+/** Every list with its identifier, labelled "Space / List" or "Space / Folder / List". */
+function listsWithPath(context: WorkspaceContext): Array<{ path: string; list: ContextList }> {
+	return (context.spaces ?? []).flatMap((s) => [
+		...(s.lists ?? []).map((list) => ({ path: `${s.name} / ${list.name}`, list })),
+		...(s.folders ?? []).flatMap((f) =>
+			(f.lists ?? []).map((list) => ({ path: `${s.name} / ${f.name} / ${list.name}`, list })),
+		),
+	]);
+}
+
+export function listIdOptions(context: WorkspaceContext): INodePropertyOptions[] {
+	return listsWithPath(context)
+		.filter(({ list }) => list.identifier)
+		.map(({ path, list }) => ({ name: path, value: list.identifier as string }));
+}
+
+/**
+ * The context lists custom fields per list, so a workspace or space field repeats in many lists.
+ * One option per identifier, labelled with its type and the first list it appears in.
+ */
+export function customFieldIdOptions(context: WorkspaceContext): INodePropertyOptions[] {
+	const seen = new Map<string, { label: string; extra: number }>();
+	for (const { path, list } of listsWithPath(context)) {
+		for (const field of list.customFields ?? []) {
+			const known = seen.get(field.identifier);
+			if (known) {
+				known.extra += 1;
+			} else {
+				seen.set(field.identifier, {
+					label: `${field.name}${field.type ? ` (${field.type})` : ''} - ${path}`,
+					extra: 0,
+				});
+			}
+		}
+	}
+
+	return [...seen].map(([value, { label, extra }]) => ({
+		name: extra > 0 ? `${label} (+${extra} more)` : label,
+		value,
+	}));
+}
+
 /* ---------- wiki spaces and boards ---------- */
 
 export function wikiSpacesSpec(workspace: string): RequestSpec {
@@ -157,12 +224,12 @@ function optionalParam(ctx: ILoadOptionsFunctions, name: string): string {
 	}
 }
 
-async function loadContext(ctx: ILoadOptionsFunctions, space?: string) {
+async function loadContext(ctx: ILoadOptionsFunctions, space?: string, extra: IDataObject = {}) {
 	const workspace = selectedWorkspace(ctx);
 	if (!workspace) {
 		return undefined;
 	}
-	const qs: IDataObject = space ? { space } : {};
+	const qs: IDataObject = { ...(space ? { space } : {}), ...extra };
 
 	return (await dutifyRequest.call(ctx, contextSpec(workspace, qs), workspace)) as WorkspaceContext;
 }
@@ -192,6 +259,30 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 		const context = await loadContext(this, space || undefined);
 
 		return context ? listOptions(context, space || undefined) : [];
+	},
+	async getSpaceIds(this: ILoadOptionsFunctions) {
+		const context = await loadContext(this, undefined, { shallow: true });
+
+		return context ? spaceIdOptions(context) : [];
+	},
+	async getFolderIds(this: ILoadOptionsFunctions) {
+		const context = await loadContext(this, undefined, { shallow: true });
+
+		return context ? folderIdOptions(context) : [];
+	},
+	async getListIds(this: ILoadOptionsFunctions) {
+		const context = await loadContext(this, undefined, { shallow: true });
+
+		return context ? listIdOptions(context) : [];
+	},
+	async getCustomFieldIds(this: ILoadOptionsFunctions) {
+		const context = await loadContext(this, undefined, {
+			includeTaskTypes: false,
+			includeRelationshipTypes: false,
+			includeTags: false,
+		});
+
+		return context ? customFieldIdOptions(context) : [];
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');

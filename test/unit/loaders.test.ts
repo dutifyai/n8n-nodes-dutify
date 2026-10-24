@@ -2,6 +2,10 @@ import type { RequestSpec } from '../../shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	boardOptions,
+	customFieldIdOptions,
+	folderIdOptions,
+	listIdOptions,
+	spaceIdOptions,
 	contextSpec,
 	getWorkspaceOptions,
 	listOptions,
@@ -170,5 +174,70 @@ describe('wiki spaces and boards loaders', () => {
 		expect(boardOptions([{ slug: 'feedback', name: 'Customer Feedback' }])).toEqual([
 			{ name: 'Customer Feedback', value: 'feedback' },
 		]);
+	});
+});
+
+describe('identifier pickers', () => {
+	const context = {
+		spaces: [
+			{
+				identifier: 'sp_eng',
+				name: 'Engineering',
+				lists: [
+					{
+						identifier: 'lst_backlog',
+						name: 'Backlog',
+						customFields: [
+							{ identifier: 'cf_sev', name: 'Severity', type: 'text' },
+							{ identifier: 'cf_ws', name: 'Team', type: 'dropdown' },
+						],
+					},
+				],
+				folders: [
+					{
+						identifier: 'fld_q2',
+						name: 'Q2',
+						lists: [
+							{
+								identifier: 'lst_backlog2',
+								name: 'Backlog',
+								customFields: [{ identifier: 'cf_ws', name: 'Team', type: 'dropdown' }],
+							},
+						],
+					},
+				],
+			},
+			{ identifier: 'sp_ops', name: 'Ops', lists: null, folders: null },
+		],
+	};
+
+	it('spaces: {name, value: identifier}', () => {
+		expect(spaceIdOptions(context)).toEqual([
+			{ name: 'Engineering', value: 'sp_eng' },
+			{ name: 'Ops', value: 'sp_ops' },
+		]);
+	});
+
+	it('folders: labelled Space / Folder', () => {
+		expect(folderIdOptions(context)).toEqual([{ name: 'Engineering / Q2', value: 'fld_q2' }]);
+	});
+
+	it('lists: duplicate names stay distinguishable by their path', () => {
+		expect(listIdOptions(context)).toEqual([
+			{ name: 'Engineering / Backlog', value: 'lst_backlog' },
+			{ name: 'Engineering / Q2 / Backlog', value: 'lst_backlog2' },
+		]);
+	});
+
+	it('custom fields: one entry per identifier, labelled with type and first location', () => {
+		expect(customFieldIdOptions(context)).toEqual([
+			{ name: 'Severity (text) - Engineering / Backlog', value: 'cf_sev' },
+			{ name: 'Team (dropdown) - Engineering / Backlog (+1 more)', value: 'cf_ws' },
+		]);
+	});
+
+	it('tolerates an empty context', () => {
+		expect(spaceIdOptions({})).toEqual([]);
+		expect(customFieldIdOptions({ spaces: null })).toEqual([]);
 	});
 });

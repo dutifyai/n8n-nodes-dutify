@@ -188,7 +188,7 @@ describe('customField', () => {
 			scope: 'space',
 			scopeName: 'Engineering',
 			name: 'Severity',
-			type: 'select',
+			type: 'dropdown',
 			additionalFields: { emoji: 'Flag', color: '#4A90D9', options: 'High, Low,,Medium' },
 		});
 		expect(spec.body).toEqual({
@@ -196,7 +196,7 @@ describe('customField', () => {
 			workspace: 'ws-1',
 			scopeName: 'Engineering',
 			name: 'Severity',
-			type: 'select',
+			type: 'dropdown',
 			emoji: 'Flag',
 			color: '#4A90D9',
 			options: [{ value: 'High' }, { value: 'Low' }, { value: 'Medium' }],
@@ -279,5 +279,66 @@ describe('tag', () => {
 			},
 		]);
 		expect(items).toEqual([{ json: { ...current, name: 'Defect' } }]);
+	});
+
+	it('update with nothing to change throws before any request', async () => {
+		const ctx = fakeContext([]);
+		await expect(
+			op(tag, 'update').run!(ctx, reader({ tag: 'tag_abc123', updateFields: {} })),
+		).rejects.toThrow(/at least one/i);
+		expect(ctx.calls).toEqual([]);
+	});
+
+	it('update merges colours too and never drops a writable TagDTO field', async () => {
+		const current = {
+			identifier: 't',
+			name: 'Bug',
+			textColor: '#FFFFFF',
+			backgroundColor: '#3B82F6',
+		};
+		const ctx = fakeContext([current, current]);
+		await op(tag, 'update').run!(
+			ctx,
+			reader({ tag: 't', updateFields: { backgroundColor: '#000000' } }),
+		);
+		expect(ctx.calls[1].body).toEqual({
+			name: 'Bug',
+			textColor: '#FFFFFF',
+			backgroundColor: '#000000',
+		});
+	});
+});
+
+describe('update with no fields set', () => {
+	it.each([
+		[folder, { folder: 'fld_abc', updateFields: {} }],
+		[list, { list: 'lst_abc', updateFields: { name: '' } }],
+		[customField, { customField: 'cf_abc', updateFields: {} }],
+	] as const)('%# throws instead of sending PUT {}', (def, params) => {
+		expect(() => op(def, 'update').build!(reader({ ...params }))).toThrow(/at least one/i);
+	});
+});
+
+describe('identifier pickers', () => {
+	const methodOf = (def: ResourceDef, operation: string, field: string) =>
+		(
+			op(def, operation).fields.find((f) => f.name === field)?.typeOptions as
+				| { loadOptionsMethod?: string }
+				| undefined
+		)?.loadOptionsMethod;
+
+	it('every id field except tag offers a picker', () => {
+		expect(methodOf(tag, 'create', 'space')).toBe('getSpaceIds');
+		expect(methodOf(folder, 'update', 'folder')).toBe('getFolderIds');
+		expect(methodOf(folder, 'delete', 'folder')).toBe('getFolderIds');
+		expect(methodOf(list, 'update', 'list')).toBe('getListIds');
+		expect(methodOf(list, 'delete', 'list')).toBe('getListIds');
+		expect(methodOf(customField, 'update', 'customField')).toBe('getCustomFieldIds');
+		expect(methodOf(customField, 'delete', 'customField')).toBe('getCustomFieldIds');
+	});
+
+	it('tag id stays free text: the context carries tag names only, no identifiers', () => {
+		const field = op(tag, 'get').fields.find((f) => f.name === 'tag');
+		expect(field?.type).toBe('string');
 	});
 });

@@ -1,3 +1,4 @@
+import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
 import { encodePath } from '../../../shared/transport';
 import type { OperationDef, ParamReader, RequestSpec, ResourceDef } from '../../../shared/types';
@@ -59,6 +60,7 @@ const nameField = (description: string): INodeProperties => ({
 	description,
 });
 
+/** Free-text identifier, for entities the workspace context lists no identifier for (tags). */
 const idField = (displayName: string, name: string, prefix: string): INodeProperties => ({
 	displayName,
 	name,
@@ -66,6 +68,18 @@ const idField = (displayName: string, name: string, prefix: string): INodeProper
 	default: '',
 	required: true,
 	description: `Identifier (${prefix}...). It is returned when the item is created.`,
+});
+
+/** Picker whose value is the identifier. Accepts an expression or a pasted ID as well. */
+const idPicker = (displayName: string, name: string, method: string): INodeProperties => ({
+	displayName,
+	name,
+	type: 'options',
+	typeOptions: { loadOptionsMethod: method },
+	default: '',
+	required: true,
+	description:
+		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 });
 
 const spaceByName: INodeProperties = {
@@ -92,12 +106,21 @@ const isPrivate = (what: string): INodeProperties => ({
 
 const metadataKeys = ['name', 'description', 'icon', 'color', 'isPrivate'] as const;
 
+/** An update that sets nothing would send `PUT {}`; refuse it up front. */
+function requireChange(body: IDataObject): IDataObject {
+	if (Object.keys(body).length === 0) {
+		throw new ApplicationError('Set at least one field to update in Update Fields');
+	}
+
+	return body;
+}
+
 /** Update ops: PUT only the metadata fields the user set. Unset fields stay unchanged server-side. */
 function updateSpec(basePath: string, idParam: string, keys: readonly string[] = metadataKeys) {
 	return (p: ParamReader): RequestSpec => ({
 		method: 'PUT',
 		path: `${basePath}/${encodeURIComponent(p.get<string>(idParam))}`,
-		body: pick(p.get<IDataObject>('updateFields', {}), keys),
+		body: requireChange(pick(p.get<IDataObject>('updateFields', {}), keys)),
 	});
 }
 
@@ -173,7 +196,7 @@ export const folder: ResourceDef = {
 			action: 'Update a folder',
 			description: 'Change only the metadata you set on a folder',
 			fields: [
-				idField('Folder ID', 'folder', 'fld_'),
+				idPicker('Folder Name or ID', 'folder', 'getFolderIds'),
 				collection('Update Fields', 'updateFields', [
 					text('Name', 'name', 'New name'),
 					description,
@@ -189,7 +212,7 @@ export const folder: ResourceDef = {
 			name: 'Delete',
 			action: 'Delete a folder',
 			description: 'Soft-delete a folder with its sub-folders, lists and tasks',
-			fields: [idField('Folder ID', 'folder', 'fld_')],
+			fields: [idPicker('Folder Name or ID', 'folder', 'getFolderIds')],
 			build: deleteSpec(folderBase, 'folder'),
 		},
 	],
@@ -241,7 +264,7 @@ export const list: ResourceDef = {
 			action: 'Update a list',
 			description: 'Change only the metadata you set on a list',
 			fields: [
-				idField('List ID', 'list', 'tl_'),
+				idPicker('List Name or ID', 'list', 'getListIds'),
 				collection('Update Fields', 'updateFields', [
 					text('Name', 'name', 'New name'),
 					description,
@@ -257,7 +280,7 @@ export const list: ResourceDef = {
 			name: 'Delete',
 			action: 'Delete a list',
 			description: 'Soft-delete a list and its tasks',
-			fields: [idField('List ID', 'list', 'tl_')],
+			fields: [idPicker('List Name or ID', 'list', 'getListIds')],
 			build: deleteSpec(listBase, 'list'),
 		},
 	],
@@ -349,7 +372,7 @@ export const customField: ResourceDef = {
 			action: 'Update a custom field',
 			description: 'Change a custom field name, description, emoji, color or privacy',
 			fields: [
-				idField('Custom Field ID', 'customField', 'cf_'),
+				idPicker('Custom Field Name or ID', 'customField', 'getCustomFieldIds'),
 				collection('Update Fields', 'updateFields', [
 					text('Name', 'name', 'New name'),
 					description,
@@ -371,7 +394,7 @@ export const customField: ResourceDef = {
 			name: 'Delete',
 			action: 'Delete a custom field',
 			description: 'Permanently delete a custom field and every task value stored in it',
-			fields: [idField('Custom Field ID', 'customField', 'cf_')],
+			fields: [idPicker('Custom Field Name or ID', 'customField', 'getCustomFieldIds')],
 			build: deleteSpec(customFieldBase, 'customField'),
 		},
 	],
@@ -399,7 +422,7 @@ export const tag: ResourceDef = {
 			action: 'Create a tag',
 			description: 'Create a tag in a space',
 			fields: [
-				idField('Space ID', 'space', 'sp_'),
+				idPicker('Space Name or ID', 'space', 'getSpaceIds'),
 				nameField('Tag name. Names are case-sensitive and unique per space.'),
 				collection('Additional Fields', 'additionalFields', tagColorOptions()),
 			],
@@ -434,11 +457,14 @@ export const tag: ResourceDef = {
 			// The backend copies every TagDTO field onto the tag, so an omitted field would be
 			// overwritten with null. Read the tag first and send it back whole.
 			run: async (ctx, p) => {
+				const changes = requireChange(
+					pick(p.get<IDataObject>('updateFields', {}), ['name', ...tagColors]),
+				);
 				const path = tagPath(p);
 				const current = (await ctx.request({ method: 'GET', path })) as IDataObject;
 				const body: IDataObject = {
 					...pick(current, ['name', ...tagColors]),
-					...pick(p.get<IDataObject>('updateFields', {}), ['name', ...tagColors]),
+					...changes,
 				};
 				const updated = await ctx.request({ method: 'PUT', path, body });
 
