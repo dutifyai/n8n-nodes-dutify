@@ -9,12 +9,24 @@ import { ApplicationError, NodeApiError, NodeOperationError } from 'n8n-workflow
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
+import { customField, folder, list, space, tag } from './resources/structure';
 import { task, taskComment, taskRelationship } from './resources/task';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
 
 /** Every resource the Dutify node exposes. Resource tasks append their ResourceDefs here. */
-export const resources: ResourceDef[] = [account, workspace, task, taskComment, taskRelationship];
+export const resources: ResourceDef[] = [
+	account,
+	workspace,
+	task,
+	taskComment,
+	taskRelationship,
+	space,
+	folder,
+	list,
+	customField,
+	tag,
+];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */
 function scoped(field: INodeProperties, show: Record<string, Array<string | boolean>>) {
