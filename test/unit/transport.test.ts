@@ -74,6 +74,15 @@ describe('toNodeError', () => {
 		expect(err.httpCode).toBe('400');
 	});
 
+	it('shows a numeric code and field in the description', () => {
+		const err = toNodeError(node, {
+			httpCode: '422',
+			response: { body: { code: 4001, message: 'Bad value', field: 7 } },
+		});
+		expect(err.description).toContain('Code: 4001');
+		expect(err.description).toContain('Field: 7');
+	});
+
 	it('keeps a 403 message instead of the generic "Forbidden" text', () => {
 		const err = toNodeError(node, {
 			httpCode: '403',

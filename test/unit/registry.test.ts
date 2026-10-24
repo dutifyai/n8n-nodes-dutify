@@ -214,6 +214,35 @@ describe('executeOperation', () => {
 		expect(firstCall[1].headers['X-Dutify-Workspace']).toBe('ws-1');
 	});
 
+	it('keeps description and httpCode on a continueOnFail error item, so validOptions survive', async () => {
+		const { self } = stubThis({
+			continueOnFail: true,
+			items: [{ resource: 'thing', operation: 'get', workspace: 'ws-1', thingId: 't1' }],
+			responses: [
+				{
+					httpCode: '400',
+					response: {
+						body: { message: 'Unknown status', field: 'status', validOptions: ['Open', 'Done'] },
+					},
+				},
+			],
+		});
+		const [out] = await executeOperation.call(self as never, resources);
+		expect(out[0].json.error).toContain('Unknown status');
+		expect(out[0].json.description).toContain('Open, Done');
+		expect(out[0].json.httpCode).toBe('400');
+	});
+
+	it('omits empty description and httpCode from a continueOnFail error item', async () => {
+		const { self } = stubThis({
+			continueOnFail: true,
+			items: [{ resource: 'thing', operation: 'get', workspace: 'ws-1', thingId: 't1' }],
+			responses: [new Error('boom')],
+		});
+		const [out] = await executeOperation.call(self as never, resources);
+		expect(Object.keys(out[0].json)).toEqual(['error']);
+	});
+
 	it('throws the Dutify error when continueOnFail is off', async () => {
 		const { self } = stubThis({
 			items: [{ resource: 'thing', operation: 'get', workspace: 'ws-1', thingId: 't2' }],

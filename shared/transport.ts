@@ -135,11 +135,11 @@ export function toNodeError(node: INode, error: unknown): NodeApiError {
 
 	const message = text(body.message) ?? text(body.error) ?? text(body.detail) ?? text(body.title);
 	const parts: string[] = [];
-	if (text(body.code)) {
-		parts.push(`Code: ${body.code as string}`);
+	if (body.code !== undefined && body.code !== null && body.code !== '') {
+		parts.push(`Code: ${String(body.code)}`);
 	}
-	if (text(body.field)) {
-		parts.push(`Field: ${body.field as string}`);
+	if (body.field !== undefined && body.field !== null && body.field !== '') {
+		parts.push(`Field: ${String(body.field)}`);
 	}
 	if (Array.isArray(body.validOptions) && body.validOptions.length > 0) {
 		parts.push(`Valid options: ${body.validOptions.map(String).join(', ')}`);

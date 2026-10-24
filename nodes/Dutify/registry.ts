@@ -9,10 +9,11 @@ import { ApplicationError, NodeApiError, NodeOperationError } from 'n8n-workflow
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
+import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
 
 /** Every resource the Dutify node exposes. Resource tasks append their ResourceDefs here. */
-export const resources: ResourceDef[] = [];
+export const resources: ResourceDef[] = [account, workspace];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */
 function scoped(field: INodeProperties, show: Record<string, Array<string | boolean>>) {
@@ -114,6 +115,21 @@ function asNodeError(node: INode, error: unknown, itemIndex: number) {
 	return new NodeOperationError(node, error as Error, { itemIndex });
 }
 
+/** `{error, description?, httpCode?}` for Continue On Fail; empty fields are left out. */
+function errorItem(error: unknown): IDataObject {
+	const item: IDataObject = { error: (error as Error).message ?? String(error) };
+	if (error instanceof NodeApiError) {
+		if (error.description) {
+			item.description = error.description;
+		}
+		if (error.httpCode) {
+			item.httpCode = error.httpCode;
+		}
+	}
+
+	return item;
+}
+
 async function runOperation(
 	this: IExecuteFunctions,
 	defs: ResourceDef[],
@@ -202,7 +218,7 @@ export async function executeOperation(
 		} catch (error) {
 			if (this.continueOnFail()) {
 				output.push({
-					json: { error: (error as Error).message ?? String(error) },
+					json: errorItem(error),
 					pairedItem: { item: itemIndex },
 				});
 				continue;

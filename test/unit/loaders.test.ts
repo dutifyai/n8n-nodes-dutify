@@ -1,0 +1,174 @@
+import type { RequestSpec } from '../../shared/types';
+import { describe, expect, it, vi } from 'vitest';
+import {
+	boardOptions,
+	contextSpec,
+	getWorkspaceOptions,
+	listOptions,
+	memberOptions,
+	spaceOptions,
+	statusOptions,
+	taskTypeOptions,
+	wikiSpaceOptions,
+	wikiSpacesSpec,
+	boardsSpec,
+} from '../../nodes/Dutify/loaders';
+
+function fetchFrom(routes: Record<string, unknown>) {
+	return vi.fn(async (spec: RequestSpec) => {
+		const key = `${spec.method} ${spec.path}`;
+		if (!(key in routes)) {
+			throw new Error(`unexpected request ${key}`);
+		}
+
+		return routes[key];
+	});
+}
+
+describe('getWorkspaceOptions', () => {
+	it('personal key: introspects the key, then lists its workspaces as {name, value: identifier}', async () => {
+		const fetch = fetchFrom({
+			'GET /mp/api/v1/api-keys/current': { keyType: 'PERSONAL', keyIdentifier: 'key_1' },
+			'GET /mp/api/v1/personal-api-keys/workspaces': [
+				{ identifier: 'ws_a', name: 'Acme', suiteAccess: true },
+				{ identifier: 'ws_b', name: 'Beta', suiteAccess: true },
+				{ identifier: 'ws_hub', name: 'Hub only', suiteAccess: false },
+			],
+		});
+		const options = await getWorkspaceOptions(fetch);
+		expect(fetch.mock.calls.map(([s]) => s.path)).toEqual([
+			'/mp/api/v1/api-keys/current',
+			'/mp/api/v1/personal-api-keys/workspaces',
+		]);
+		expect(options).toEqual([
+			{ name: 'Acme', value: 'ws_a' },
+			{ name: 'Beta', value: 'ws_b' },
+		]);
+	});
+
+	it('workspace-bound key: never calls the personal-keys endpoint and returns the bound workspace', async () => {
+		const fetch = fetchFrom({
+			'GET /mp/api/v1/api-keys/current': {
+				keyType: 'WORKSPACE',
+				workspaceIdentifier: 'ws_xyz',
+				workspaceName: 'Acme Corp',
+			},
+		});
+		const options = await getWorkspaceOptions(fetch);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(options).toEqual([{ name: 'Acme Corp', value: 'ws_xyz' }]);
+	});
+
+	it('filters by the search text, case-insensitively, on name and identifier', async () => {
+		const fetch = fetchFrom({
+			'GET /mp/api/v1/api-keys/current': { keyType: 'PERSONAL' },
+			'GET /mp/api/v1/personal-api-keys/workspaces': [
+				{ identifier: 'ws_a', name: 'Acme', suiteAccess: true },
+				{ identifier: 'ws_b', name: 'Beta', suiteAccess: true },
+			],
+		});
+		expect(await getWorkspaceOptions(fetch, 'ACM')).toEqual([{ name: 'Acme', value: 'ws_a' }]);
+	});
+});
+
+const context = {
+	identifier: 'ws_abc',
+	name: 'Acme',
+	members: [
+		{ email: 'alice@dutify.ai', fullName: 'Alice A', role: 'Admin' },
+		{ email: 'bob@dutify.ai', fullName: null, role: 'Member' },
+	],
+	taskTypes: ['Bug', 'Story'],
+	spaces: [
+		{
+			identifier: 'sp_eng',
+			name: 'Engineering',
+			lists: [{ identifier: 'lst_backlog', name: 'Backlog', statuses: ['Open', 'Done'] }],
+			folders: [
+				{
+					identifier: 'fld_q2',
+					name: 'Q2',
+					lists: [{ identifier: 'lst_sprint', name: 'Sprint', statuses: ['To Do', 'Doing'] }],
+				},
+			],
+		},
+		{ identifier: 'sp_ops', name: 'Ops', lists: [], folders: [] },
+	],
+};
+
+describe('workspace context loaders', () => {
+	it('contextSpec builds the lite context request, narrowing by space name', () => {
+		expect(contextSpec('ws_abc')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws_abc/lite/context',
+			qs: {},
+		});
+		expect(contextSpec('ws/1', { space: 'Engineering', shallow: false })).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws%2F1/lite/context',
+			qs: { space: 'Engineering', shallow: false },
+		});
+	});
+
+	it('spaceOptions uses the space name as value', () => {
+		expect(spaceOptions(context)).toEqual([
+			{ name: 'Engineering', value: 'Engineering' },
+			{ name: 'Ops', value: 'Ops' },
+		]);
+	});
+
+	it('listOptions flattens top-level and folder lists, optionally for one space', () => {
+		expect(listOptions(context)).toEqual([
+			{ name: 'Backlog', value: 'Backlog' },
+			{ name: 'Sprint (Q2)', value: 'Sprint' },
+		]);
+		expect(listOptions(context, 'Ops')).toEqual([]);
+		expect(listOptions(context, 'Engineering')).toHaveLength(2);
+	});
+
+	it('statusOptions returns the statuses of the chosen list', () => {
+		expect(statusOptions(context, 'Sprint')).toEqual([
+			{ name: 'To Do', value: 'To Do' },
+			{ name: 'Doing', value: 'Doing' },
+		]);
+		expect(statusOptions(context, 'Nope')).toEqual([]);
+	});
+
+	it('memberOptions uses the email as value (lite endpoints take assignee emails)', () => {
+		expect(memberOptions(context)).toEqual([
+			{ name: 'Alice A (alice@dutify.ai)', value: 'alice@dutify.ai' },
+			{ name: 'bob@dutify.ai', value: 'bob@dutify.ai' },
+		]);
+	});
+
+	it('taskTypeOptions uses the type name as value', () => {
+		expect(taskTypeOptions(context)).toEqual([
+			{ name: 'Bug', value: 'Bug' },
+			{ name: 'Story', value: 'Story' },
+		]);
+		expect(taskTypeOptions({})).toEqual([]);
+	});
+});
+
+describe('wiki spaces and boards loaders', () => {
+	it('wikiSpacesSpec / wikiSpaceOptions use the space key', () => {
+		expect(wikiSpacesSpec('ws_abc')).toEqual({
+			method: 'GET',
+			path: '/api/wiki/v1/workspaces/ws_abc/wiki/spaces/lite',
+		});
+		expect(wikiSpaceOptions([{ key: 'DOCS', name: 'Documentation', pageCount: 4 }])).toEqual([
+			{ name: 'Documentation', value: 'DOCS' },
+		]);
+	});
+
+	it('boardsSpec / boardOptions use the board slug', () => {
+		expect(boardsSpec('ws_abc')).toEqual({
+			method: 'GET',
+			path: '/api/roadmarq/v1/boards/lite',
+			qs: { workspaceIdentifier: 'ws_abc' },
+		});
+		expect(boardOptions([{ slug: 'feedback', name: 'Customer Feedback' }])).toEqual([
+			{ name: 'Customer Feedback', value: 'feedback' },
+		]);
+	});
+});
