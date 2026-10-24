@@ -1,5 +1,6 @@
 import type { IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
 import { ApplicationError } from 'n8n-workflow';
+import { dateTime, splitList, toInstant } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationContext,
@@ -30,31 +31,6 @@ const REACTION_PAGING: PaginationStyle = {
 	zeroBased: true,
 	maxPageSize: 100,
 };
-
-/** `a, b ,,c` -> ['a','b','c']. */
-function splitList(value: unknown): string[] {
-	if (Array.isArray(value)) {
-		return value.map((v) => String(v).trim()).filter(Boolean);
-	}
-	if (typeof value !== 'string') {
-		return [];
-	}
-
-	return value
-		.split(',')
-		.map((v) => v.trim())
-		.filter(Boolean);
-}
-
-/** The API wants ISO-8601 instants. n8n date pickers can omit the zone, which is read as UTC. */
-function toInstant(value: unknown): string {
-	const text = String(value).trim();
-	if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-		return `${text}T00:00:00Z`;
-	}
-
-	return /(Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`;
-}
 
 function parseCustomFields(value: unknown): IDataObject {
 	if (value !== null && typeof value === 'object') {
@@ -165,7 +141,8 @@ const spaceOption: INodeProperties = {
 	type: 'options',
 	typeOptions: { loadOptionsMethod: 'getSpaces' },
 	default: '',
-	description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 const listOption: INodeProperties = {
@@ -174,7 +151,8 @@ const listOption: INodeProperties = {
 	type: 'options',
 	typeOptions: { loadOptionsMethod: 'getLists', loadOptionsDependsOn: ['space'] },
 	default: '',
-	description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 const statusOption: INodeProperties = {
@@ -183,7 +161,8 @@ const statusOption: INodeProperties = {
 	type: 'options',
 	typeOptions: { loadOptionsMethod: 'getStatuses', loadOptionsDependsOn: ['list'] },
 	default: '',
-	description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 const taskTypeOption: INodeProperties = {
@@ -192,7 +171,8 @@ const taskTypeOption: INodeProperties = {
 	type: 'options',
 	typeOptions: { loadOptionsMethod: 'getTaskTypes' },
 	default: '',
-	description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 const assigneesOption: INodeProperties = {
@@ -201,7 +181,8 @@ const assigneesOption: INodeProperties = {
 	type: 'multiOptions',
 	typeOptions: { loadOptionsMethod: 'getMembers' },
 	default: [],
-	description: 'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 const text = (displayName: string, name: string, description: string): INodeProperties => ({
@@ -212,21 +193,14 @@ const text = (displayName: string, name: string, description: string): INodeProp
 	description,
 });
 
-const dateTime = (displayName: string, name: string, description: string): INodeProperties => ({
-	displayName,
-	name,
-	type: 'dateTime',
-	default: '',
-	description,
-});
-
 const mentionsOption: INodeProperties = {
 	displayName: 'Mentions Names or IDs',
 	name: 'mentions',
 	type: 'multiOptions',
 	typeOptions: { loadOptionsMethod: 'getMembers' },
 	default: [],
-	description: 'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+	description:
+		'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 };
 
 /** Fields shared by create and update, as collection options. */
@@ -390,7 +364,8 @@ const searchOp: OperationDef = {
 				type: 'multiOptions',
 				typeOptions: { loadOptionsMethod: 'getMembers' },
 				default: [],
-				description: 'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+				description:
+					'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 			},
 			{
 				displayName: 'Task Types Names or IDs',
@@ -398,7 +373,8 @@ const searchOp: OperationDef = {
 				type: 'multiOptions',
 				typeOptions: { loadOptionsMethod: 'getTaskTypes' },
 				default: [],
-				description: 'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+				description:
+					'Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 			},
 			{
 				displayName: 'Include Closed',

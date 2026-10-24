@@ -1,21 +1,9 @@
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
-import { collection, isSet, requireChange, text } from '../../../shared/fieldHelpers';
+import { collection, isSet, requireChange, splitList, text } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type { OperationDef, ParamReader, RequestSpec, ResourceDef } from '../../../shared/types';
 
 /* ---------- helpers ---------- */
-
-/** `a, b ,,c` -> ['a','b','c']. */
-function splitList(value: unknown): string[] {
-	if (typeof value !== 'string') {
-		return [];
-	}
-
-	return value
-		.split(',')
-		.map((v) => v.trim())
-		.filter(Boolean);
-}
 
 /** Copies the listed keys of a collection into a body, skipping unset values (false is kept). */
 function pick(fields: IDataObject, keys: readonly string[], body: IDataObject = {}): IDataObject {
