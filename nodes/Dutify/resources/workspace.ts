@@ -33,12 +33,7 @@ export const account: ResourceDef = {
 
 				return workspaces.map((w) => ({
 					json: personal
-						? {
-								identifier: w.identifier,
-								name: w.name,
-								description: w.description,
-								isOwner: w.isOwner,
-							}
+						? { identifier: w.identifier, name: w.name }
 						: { identifier: w.identifier, name: w.name, bound: true },
 				}));
 			},
@@ -222,7 +217,11 @@ export const workspace: ResourceDef = {
 					],
 				},
 			],
-			build: (p) => contextSpec(p.workspace, p.get<IDataObject>('additionalFields', {})),
+			build: (p) => {
+				const { space, ...rest } = p.get<IDataObject>('additionalFields', {});
+
+				return contextSpec(p.workspace, space ? { ...rest, space } : rest);
+			},
 		},
 		{
 			operation: 'getDashboard',
@@ -254,14 +253,20 @@ export const workspace: ResourceDef = {
 					description: 'UUID of the space, folder or list',
 				},
 			],
-			build: (p) => ({
-				method: 'GET',
-				path: '/mp/api/v1/dashboard/lite',
-				qs: {
-					scope: p.get<string>('scope'),
-					scopeIdentifier: p.get<string>('scopeIdentifier', ''),
-				},
-			}),
+			build: (p) => {
+				const scope = p.get<string>('scope');
+
+				// The backend rejects a blank scopeIdentifier for every scope, workspace included.
+				return {
+					method: 'GET',
+					path: '/mp/api/v1/dashboard/lite',
+					qs: {
+						scope,
+						scopeIdentifier:
+							scope === 'workspace' ? p.workspace : p.get<string>('scopeIdentifier', ''),
+					},
+				};
+			},
 		},
 		{
 			operation: 'getReferenceData',

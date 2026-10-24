@@ -73,17 +73,15 @@ describe('account', () => {
 		const { items, paths } = await run(account, 'listWorkspaces', [
 			{ keyType: 'PERSONAL' },
 			[
-				{ identifier: 'ws_a', name: 'Acme', description: 'd', isOwner: true, suiteAccess: true },
-				{ identifier: 'ws_h', name: 'Hub', suiteAccess: false },
+				{ identifier: 'ws_a', id: 'u-1', name: 'Acme', suiteAccess: true, hubAccess: false },
+				{ identifier: 'ws_h', id: 'u-2', name: 'Hub', suiteAccess: false, hubAccess: true },
 			],
 		]);
 		expect(paths).toEqual([
 			'/mp/api/v1/api-keys/current',
 			'/mp/api/v1/personal-api-keys/workspaces',
 		]);
-		expect(items).toEqual([
-			{ json: { identifier: 'ws_a', name: 'Acme', description: 'd', isOwner: true } },
-		]);
+		expect(items).toEqual([{ json: { identifier: 'ws_a', name: 'Acme' } }]);
 	});
 
 	it('listWorkspaces with a workspace key returns only the bound workspace, no personal-keys call', async () => {
@@ -122,13 +120,13 @@ describe('account', () => {
 	it('findMyWorkspace with a personal key returns its workspaces', async () => {
 		const { items } = await run(account, 'findMyWorkspace', [
 			{ keyType: 'PERSONAL' },
-			[{ identifier: 'ws_a', name: 'Acme', suiteAccess: true }],
+			[{ identifier: 'ws_a', id: 'u-1', name: 'Acme', suiteAccess: true, hubAccess: true }],
 		]);
 		expect(items).toEqual([
 			{
 				json: {
 					keyType: 'PERSONAL',
-					workspaces: [{ identifier: 'ws_a', name: 'Acme', description: null, isOwner: false }],
+					workspaces: [{ identifier: 'ws_a', name: 'Acme' }],
 				},
 			},
 		]);
@@ -172,16 +170,26 @@ describe('workspace', () => {
 		});
 	});
 
-	it('getDashboard: dashboard/lite by scope and optional scopeIdentifier', () => {
+	it('getDashboard: workspace scope sends the workspace identifier as scopeIdentifier (backend rejects blank)', () => {
 		expect(build(workspace, 'getDashboard', { scope: 'workspace', scopeIdentifier: '' })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/dashboard/lite',
-			qs: { scope: 'workspace', scopeIdentifier: '' },
+			qs: { scope: 'workspace', scopeIdentifier: 'ws-1' },
 		});
 		expect(build(workspace, 'getDashboard', { scope: 'list', scopeIdentifier: 'abc-1' })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/dashboard/lite',
 			qs: { scope: 'list', scopeIdentifier: 'abc-1' },
+		});
+	});
+
+	it('getContext drops a blank space from the query', () => {
+		expect(
+			build(workspace, 'getContext', { additionalFields: { space: '', shallow: true } }),
+		).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/lite/context',
+			qs: { shallow: true },
 		});
 	});
 

@@ -5,8 +5,6 @@ export type Fetch = (spec: RequestSpec) => Promise<unknown>;
 export interface WorkspaceSummary {
 	identifier: string;
 	name: string;
-	description: string | null;
-	isOwner: boolean;
 }
 
 export interface CurrentKey {
@@ -27,8 +25,6 @@ export const personalWorkspacesSpec: RequestSpec = {
 interface RawWorkspace {
 	identifier: string;
 	name: string;
-	description?: string | null;
-	isOwner?: boolean;
 	suiteAccess?: boolean;
 }
 
@@ -54,8 +50,6 @@ export async function fetchAccessibleWorkspaces(
 				{
 					identifier: key.workspaceIdentifier as string,
 					name: key.workspaceName ?? (key.workspaceIdentifier as string),
-					description: null,
-					isOwner: false,
 				},
 			],
 		};
@@ -70,8 +64,6 @@ export async function fetchAccessibleWorkspaces(
 			.map((w) => ({
 				identifier: w.identifier,
 				name: w.name,
-				description: w.description ?? null,
-				isOwner: w.isOwner ?? false,
 			})),
 	};
 }

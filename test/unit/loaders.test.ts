@@ -30,9 +30,9 @@ describe('getWorkspaceOptions', () => {
 		const fetch = fetchFrom({
 			'GET /mp/api/v1/api-keys/current': { keyType: 'PERSONAL', keyIdentifier: 'key_1' },
 			'GET /mp/api/v1/personal-api-keys/workspaces': [
-				{ identifier: 'ws_a', name: 'Acme', suiteAccess: true },
-				{ identifier: 'ws_b', name: 'Beta', suiteAccess: true },
-				{ identifier: 'ws_hub', name: 'Hub only', suiteAccess: false },
+				{ identifier: 'ws_a', name: 'Acme', id: 'u', suiteAccess: true, hubAccess: false },
+				{ identifier: 'ws_b', name: 'Beta', id: 'u', suiteAccess: true, hubAccess: false },
+				{ identifier: 'ws_hub', name: 'Hub only', id: 'u', suiteAccess: false, hubAccess: false },
 			],
 		});
 		const options = await getWorkspaceOptions(fetch);
@@ -63,8 +63,8 @@ describe('getWorkspaceOptions', () => {
 		const fetch = fetchFrom({
 			'GET /mp/api/v1/api-keys/current': { keyType: 'PERSONAL' },
 			'GET /mp/api/v1/personal-api-keys/workspaces': [
-				{ identifier: 'ws_a', name: 'Acme', suiteAccess: true },
-				{ identifier: 'ws_b', name: 'Beta', suiteAccess: true },
+				{ identifier: 'ws_a', name: 'Acme', id: 'u', suiteAccess: true, hubAccess: false },
+				{ identifier: 'ws_b', name: 'Beta', id: 'u', suiteAccess: true, hubAccess: false },
 			],
 		});
 		expect(await getWorkspaceOptions(fetch, 'ACM')).toEqual([{ name: 'Acme', value: 'ws_a' }]);
