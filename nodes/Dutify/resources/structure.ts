@@ -1,11 +1,9 @@
-import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
+import { collection, isSet, requireChange, text } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type { OperationDef, ParamReader, RequestSpec, ResourceDef } from '../../../shared/types';
 
 /* ---------- helpers ---------- */
-
-const isSet = (value: unknown) => value !== undefined && value !== null && value !== '';
 
 /** `a, b ,,c` -> ['a','b','c']. */
 function splitList(value: unknown): string[] {
@@ -29,27 +27,6 @@ function pick(fields: IDataObject, keys: readonly string[], body: IDataObject = 
 
 	return body;
 }
-
-const collection = (
-	displayName: string,
-	name: string,
-	options: INodeProperties[],
-): INodeProperties => ({
-	displayName,
-	name,
-	type: 'collection',
-	placeholder: 'Add Field',
-	default: {},
-	options,
-});
-
-const text = (displayName: string, name: string, description: string): INodeProperties => ({
-	displayName,
-	name,
-	type: 'string',
-	default: '',
-	description,
-});
 
 const nameField = (description: string): INodeProperties => ({
 	displayName: 'Name',
@@ -105,15 +82,6 @@ const isPrivate = (what: string): INodeProperties => ({
 });
 
 const metadataKeys = ['name', 'description', 'icon', 'color', 'isPrivate'] as const;
-
-/** An update that sets nothing would send `PUT {}`; refuse it up front. */
-function requireChange(body: IDataObject): IDataObject {
-	if (Object.keys(body).length === 0) {
-		throw new ApplicationError('Set at least one field to update in Update Fields');
-	}
-
-	return body;
-}
 
 /** Update ops: PUT only the metadata fields the user set. Unset fields stay unchanged server-side. */
 function updateSpec(basePath: string, idParam: string, keys: readonly string[] = metadataKeys) {

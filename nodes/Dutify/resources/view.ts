@@ -1,5 +1,6 @@
 import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
+import { collection, isSet, jsonField, requireChange, text } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationDef,
@@ -18,8 +19,6 @@ const CURSOR_PAGING: PaginationStyle = {
 	nextCursorPath: 'nextCursor',
 	maxPageSize: 200,
 };
-
-const isSet = (value: unknown) => value !== undefined && value !== null && value !== '';
 
 const EXPRESSION_HINT =
 	'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>';
@@ -76,43 +75,6 @@ function withJson(body: IDataObject, fields: Record<string, 'array' | 'object'>)
 
 	return body;
 }
-
-function requireChange(body: IDataObject): IDataObject {
-	if (Object.keys(body).length === 0) {
-		throw new ApplicationError('Set at least one field to update in Update Fields');
-	}
-
-	return body;
-}
-
-const collection = (
-	displayName: string,
-	name: string,
-	options: INodeProperties[],
-): INodeProperties => ({
-	displayName,
-	name,
-	type: 'collection',
-	placeholder: 'Add Field',
-	default: {},
-	options,
-});
-
-const text = (displayName: string, name: string, description: string): INodeProperties => ({
-	displayName,
-	name,
-	type: 'string',
-	default: '',
-	description,
-});
-
-const jsonField = (displayName: string, name: string, description: string): INodeProperties => ({
-	displayName,
-	name,
-	type: 'json',
-	default: '',
-	description,
-});
 
 const integer = (displayName: string, name: string, description: string): INodeProperties => ({
 	displayName,
