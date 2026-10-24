@@ -210,6 +210,57 @@ export function boardOptions(
 	return (boards ?? []).map((b) => ({ name: b.name, value: b.slug }));
 }
 
+/* ---------- views and dashboard widgets ---------- */
+
+/** One page of a scope's views, at the backend's maximum page size. */
+export function viewsSpec(scope: string, scopeIdentifier: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: '/mp/api/v1/views/lite',
+		qs: { scope, scopeIdentifier, limit: 200 },
+	};
+}
+
+interface ViewPage {
+	items?: Array<{ identifier?: string; name?: string; type?: string }> | null;
+}
+
+export function viewOptions(page: ViewPage | null | undefined): INodePropertyOptions[] {
+	return (page?.items ?? [])
+		.filter((v) => v.identifier)
+		.map((v) => {
+			const label = v.name ?? (v.identifier as string);
+
+			return { name: v.type ? `${label} (${v.type})` : label, value: v.identifier as string };
+		});
+}
+
+export function widgetsSpec(viewId: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/views/lite/${viewId}/widgets` };
+}
+
+interface WidgetRow {
+	id?: string;
+	type?: string;
+	title?: string;
+}
+
+export function widgetOptions(widgets: WidgetRow[] | null | undefined): INodePropertyOptions[] {
+	return (widgets ?? [])
+		.filter((w) => w.id)
+		.map((w) => ({
+			name: w.title ? `${w.title} (${w.type ?? 'widget'})` : `${w.type ?? 'widget'} (${w.id})`,
+			value: w.id as string,
+		}));
+}
+
+/** Which field of the view scope fields holds the target identifier, per scope. */
+const SCOPE_TARGET_PARAM: Record<string, string> = {
+	space: 'scopeSpaceId',
+	folder: 'scopeFolderId',
+	list: 'scopeListId',
+};
+
 /* ---------- n8n wiring ---------- */
 
 function selectedWorkspace(ctx: ILoadOptionsFunctions): string {
@@ -283,6 +334,28 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 		});
 
 		return context ? customFieldIdOptions(context) : [];
+	},
+	async getViews(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const scope = optionalParam(this, 'scope');
+		const target =
+			scope === 'workspace' ? workspace : optionalParam(this, SCOPE_TARGET_PARAM[scope] ?? '');
+		if (!workspace || !scope || !target) {
+			return [];
+		}
+		const page = (await dutifyRequest.call(this, viewsSpec(scope, target), workspace)) as ViewPage;
+
+		return viewOptions(page);
+	},
+	async getWidgets(this: ILoadOptionsFunctions) {
+		const view = optionalParam(this, 'view');
+		const workspace = selectedWorkspace(this);
+		if (!workspace || !view) {
+			return [];
+		}
+		const widgets = (await dutifyRequest.call(this, widgetsSpec(view), workspace)) as WidgetRow[];
+
+		return widgetOptions(widgets);
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');

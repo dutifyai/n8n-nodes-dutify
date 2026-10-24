@@ -11,6 +11,7 @@ import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
 import { customField, folder, list, space, tag } from './resources/structure';
 import { task, taskComment, taskRelationship } from './resources/task';
+import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
 
@@ -26,6 +27,7 @@ export const resources: ResourceDef[] = [
 	list,
 	customField,
 	tag,
+	view,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

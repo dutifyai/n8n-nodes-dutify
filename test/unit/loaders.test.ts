@@ -16,6 +16,10 @@ import {
 	wikiSpaceOptions,
 	wikiSpacesSpec,
 	boardsSpec,
+	viewOptions,
+	viewsSpec,
+	widgetOptions,
+	widgetsSpec,
 } from '../../nodes/Dutify/loaders';
 
 function fetchFrom(routes: Record<string, unknown>) {
@@ -239,5 +243,48 @@ describe('identifier pickers', () => {
 	it('tolerates an empty context', () => {
 		expect(spaceIdOptions({})).toEqual([]);
 		expect(customFieldIdOptions({ spaces: null })).toEqual([]);
+	});
+});
+
+describe('view and widget pickers', () => {
+	it('viewsSpec: lists views of the chosen scope, 200 per page', () => {
+		expect(viewsSpec('list', 'lst_abc')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/views/lite',
+			qs: { scope: 'list', scopeIdentifier: 'lst_abc', limit: 200 },
+		});
+	});
+
+	it('viewOptions: {name (type), value: identifier}; tolerates a missing page', () => {
+		expect(
+			viewOptions({
+				items: [
+					{ identifier: 'rv_1', name: 'Sprint Board', type: 'board' },
+					{ identifier: 'rv_2', name: 'Overview', type: 'dashboard' },
+					{ name: 'No id' },
+				],
+			}),
+		).toEqual([
+			{ name: 'Sprint Board (board)', value: 'rv_1' },
+			{ name: 'Overview (dashboard)', value: 'rv_2' },
+		]);
+		expect(viewOptions(undefined)).toEqual([]);
+	});
+
+	it('widgetsSpec + widgetOptions: widgets of a view as {title (type), value: id}', () => {
+		expect(widgetsSpec('rv_1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/views/lite/rv_1/widgets',
+		});
+		expect(
+			widgetOptions([
+				{ id: 'widget_a', type: 'chart', title: 'Tasks by Status' },
+				{ id: 'widget_b', type: 'workload' },
+			]),
+		).toEqual([
+			{ name: 'Tasks by Status (chart)', value: 'widget_a' },
+			{ name: 'workload (widget_b)', value: 'widget_b' },
+		]);
+		expect(widgetOptions(null)).toEqual([]);
 	});
 });
