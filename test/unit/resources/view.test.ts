@@ -243,6 +243,21 @@ describe('view', () => {
 describe('dashboard widgets', () => {
 	const viewParams = { scope: 'list', scopeListId: 'l', view: 'rv_abc' };
 
+	it('widget type options include metric-card and task-list, and say the list may be incomplete', () => {
+		const field = op('addWidget').fields.find((f) => f.name === 'widgetType');
+		const values = (field?.options as Array<{ value: string }>).map((o) => o.value);
+		expect(values).toEqual(expect.arrayContaining(['metric-card', 'task-list']));
+		expect(field?.description).toMatch(/incomplete/i);
+		expect(field?.description).toMatch(/expression/i);
+		const update = op('updateWidget').fields.find((f) => f.name === 'updateFields');
+		const typeOption = (
+			update?.options as Array<{ name: string; options?: Array<{ value: string }> }>
+		).find((o) => o.name === 'type');
+		expect(typeOption?.options?.map((o) => o.value)).toEqual(
+			expect.arrayContaining(['metric-card']),
+		);
+	});
+
 	it('listWidgets: GET views/lite/{viewId}/widgets (a plain array, no paging)', () => {
 		expect(build('listWidgets', viewParams)).toEqual({
 			method: 'GET',

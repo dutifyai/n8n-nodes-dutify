@@ -270,6 +270,8 @@ const WIDGET_TYPES = [
 	'voting-results',
 	'relationship-graph',
 	'overdue-tracker',
+	'metric-card',
+	'task-list',
 ];
 
 const widgetBody = (type: string | undefined, fields: IDataObject): IDataObject =>
@@ -471,7 +473,8 @@ const operations: OperationDef[] = [
 				options: WIDGET_TYPES.map((value) => ({ name: value, value })),
 				default: 'distribution-chart',
 				required: true,
-				description: 'Which kind of widget to render. Some types need a paid plan.',
+				description:
+					'Which kind of widget to render. Some types need a paid plan. This list may be incomplete: an expression can supply any widget type the server accepts',
 			},
 			collection('Additional Fields', 'additionalFields', widgetLayout()),
 		],
@@ -532,7 +535,8 @@ const operations: OperationDef[] = [
 					type: 'options',
 					options: WIDGET_TYPES.map((value) => ({ name: value, value })),
 					default: 'distribution-chart',
-					description: 'Change the kind of widget',
+					description:
+						'Change the kind of widget. This list may be incomplete: an expression can supply any widget type the server accepts.',
 				},
 				...widgetLayout(),
 			]),
