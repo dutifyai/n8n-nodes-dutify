@@ -38,6 +38,17 @@ describe('buildHttpOptions', () => {
 		expect(opts.json).toBe(true);
 	});
 
+	it('repeats array query keys (status=a&status=b) and leaves arrayFormat unset otherwise', () => {
+		const withArray = buildHttpOptions(
+			'https://dutify.ai',
+			{ method: 'GET', path: '/x', qs: { status: ['a', 'b'] } },
+			'ws-1',
+		);
+		expect(withArray.qs).toEqual({ status: ['a', 'b'] });
+		expect(withArray.arrayFormat).toBe('repeat');
+		expect(buildHttpOptions('https://dutify.ai', spec, 'ws-1').arrayFormat).toBeUndefined();
+	});
+
 	it('sends no X-Dutify-Workspace header when no workspace is selected', () => {
 		const opts = buildHttpOptions('https://dutify.ai', spec, '');
 		expect(opts.headers ?? {}).not.toHaveProperty('X-Dutify-Workspace');

@@ -57,6 +57,10 @@ export function buildHttpOptions(
 	const qs = compactQs(spec.qs);
 	if (Object.keys(qs).length > 0) {
 		options.qs = qs;
+		// Quarkus binds List<String> query params from repeated keys (a=1&a=2), not a[0]=1.
+		if (Object.values(qs).some((v) => Array.isArray(v))) {
+			options.arrayFormat = 'repeat';
+		}
 	}
 	if (spec.body !== undefined) {
 		options.body = spec.body;
