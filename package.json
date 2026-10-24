@@ -1,0 +1,48 @@
+{
+	"name": "n8n-nodes-dutify",
+	"version": "0.1.0",
+	"description": "n8n community node for Dutify (tasks, wiki, feature requests).",
+	"license": "MIT",
+	"homepage": "https://dutify.ai",
+	"keywords": [
+		"n8n-community-node-package"
+	],
+	"author": {
+		"name": "Alexander Goncharov",
+		"email": "forwebmn@gmail.com"
+	},
+	"scripts": {
+		"build": "n8n-node build",
+		"build:watch": "tsc --watch",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"test": "vitest run test/unit",
+		"test:live": "vitest run test/live",
+		"release": "n8n-node release",
+		"prepublishOnly": "n8n-node prerelease"
+	},
+	"files": [
+		"dist"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": true,
+		"credentials": [
+			"dist/credentials/DutifyApi.credentials.js"
+		],
+		"nodes": []
+	},
+	"devDependencies": {
+		"@n8n/node-cli": "*",
+		"eslint": "9.32.0",
+		"prettier": "3.6.2",
+		"release-it": "^21.1.0",
+		"typescript": "5.9.2",
+		"vite": "^7.3.7",
+		"vitest": "^5.0.5"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}

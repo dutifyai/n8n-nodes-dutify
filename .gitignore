@@ -2,3 +2,4 @@ node_modules/
 dist/
 .dutify-test.env
 .superpowers/
+*.tsbuildinfo
