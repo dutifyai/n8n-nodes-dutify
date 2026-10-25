@@ -550,46 +550,78 @@ describe('taskComment', () => {
 		});
 	});
 
-	it('addReaction: POST the reaction type to the task comment reactions endpoint', () => {
-		expect(
-			build(taskComment, 'addReaction', {
-				task: 'tsk_1',
-				comment: 'cmt_1',
-				reactionType: 'thumbs_up',
-			}),
-		).toEqual({
-			method: 'POST',
-			path: '/mp/api/v1/tasks/tsk_1/comments/cmt_1/reactions',
-			body: { reactionType: 'thumbs_up' },
-		});
+	/* The reaction endpoints take task IDs only; a task key is looked up first. */
+	const keyLookup = {
+		method: 'GET',
+		path: '/mp/api/v1/tasks/lite/PROJ-42',
+		qs: { workspace: 'ws-1' },
+	};
+	const TASK_ROW = { identifier: 'a1b2c3d4e5', key: 'PROJ-42' };
+
+	it('addReaction: resolves a task key, then POSTs the reaction type to the comment reactions endpoint', async () => {
+		const { items, calls } = await run(
+			taskComment,
+			'addReaction',
+			{ task: 'PROJ-42', comment: 'cmt_1', reactionType: 'thumbs_up' },
+			[TASK_ROW, { identifier: 'react_1', reactionType: 'thumbs_up' }],
+		);
+		expect(calls).toEqual([
+			keyLookup,
+			{
+				method: 'POST',
+				path: '/mp/api/v1/tasks/a1b2c3d4e5/comments/cmt_1/reactions',
+				body: { reactionType: 'thumbs_up' },
+			},
+		]);
+		expect(items).toEqual([{ json: { identifier: 'react_1', reactionType: 'thumbs_up' } }]);
 	});
 
-	it('listReactions: GET, zero-based page/size pagination (backend max size 100)', () => {
-		expect(build(taskComment, 'listReactions', { task: 'tsk_1', comment: 'cmt_1' })).toEqual({
-			method: 'GET',
-			path: '/mp/api/v1/tasks/tsk_1/comments/cmt_1/reactions',
-			paginate: {
-				kind: 'page',
-				pageParam: 'page',
-				sizeParam: 'size',
-				zeroBased: true,
-				maxPageSize: 100,
+	it('listReactions: resolves a task key, then GETs with zero-based page/size pagination (backend max size 100)', async () => {
+		const { items, calls } = await run(
+			taskComment,
+			'listReactions',
+			{ task: 'PROJ-42', comment: 'cmt_1', returnAll: false, limit: 5 },
+			[TASK_ROW, [{ identifier: 'react_1' }]],
+		);
+		expect(calls).toEqual([
+			keyLookup,
+			{
+				method: 'GET',
+				path: '/mp/api/v1/tasks/a1b2c3d4e5/comments/cmt_1/reactions',
+				paginate: {
+					kind: 'page',
+					pageParam: 'page',
+					sizeParam: 'size',
+					zeroBased: true,
+					maxPageSize: 100,
+				},
+				qs: { page: 0, size: 100 },
 			},
-		});
+		]);
+		expect(items).toEqual([{ json: { identifier: 'react_1' } }]);
 		expect(op(taskComment, 'listReactions').list).toBe(true);
 	});
 
-	it('removeReaction: DELETE the reaction by its identifier', () => {
-		expect(
-			build(taskComment, 'removeReaction', {
-				task: 'tsk_1',
-				comment: 'cmt_1',
-				reaction: 'react_1',
-			}),
-		).toEqual({
-			method: 'DELETE',
-			path: '/mp/api/v1/tasks/tsk_1/comments/cmt_1/reactions/react_1',
-		});
+	it('removeReaction: resolves a task key, then DELETEs the reaction by its identifier', async () => {
+		const { calls } = await run(
+			taskComment,
+			'removeReaction',
+			{ task: 'PROJ-42', comment: 'cmt_1', reaction: 'react_1' },
+			[TASK_ROW, undefined],
+		);
+		expect(calls).toEqual([
+			keyLookup,
+			{
+				method: 'DELETE',
+				path: '/mp/api/v1/tasks/a1b2c3d4e5/comments/cmt_1/reactions/react_1',
+			},
+		]);
+	});
+
+	it('reaction operations describe the Task field as accepting a key', () => {
+		for (const name of ['addReaction', 'listReactions', 'removeReaction']) {
+			expect(field(taskComment, name, 'task')?.description).toMatch(/PROJ-/);
+		}
 	});
 });
 

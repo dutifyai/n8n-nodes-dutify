@@ -1,6 +1,7 @@
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
 import { ApplicationError } from 'n8n-workflow';
 import { dateTime, oneItem, splitList, toInstant } from '../../../shared/fieldHelpers';
+import { resolveTaskId } from '../../../shared/taskRefs';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationContext,
@@ -628,8 +629,16 @@ const commentRef: INodeProperties = {
 	description: 'Identifier of the comment (cmt_...)',
 };
 
-const commentPath = (p: ParamReader) =>
-	encodePath`/mp/api/v1/tasks/${p.get<string>('task')}/comments/${p.get<string>('comment')}/reactions`;
+/** The reaction endpoints take task IDs only, so a task key is looked up first. */
+const reactionsPath = async (ctx: OperationContext, p: ParamReader) => {
+	const taskId = await resolveTaskId(
+		async (spec) => await ctx.request(spec),
+		p.get<string>('task'),
+		p.workspace,
+	);
+
+	return encodePath`/mp/api/v1/tasks/${taskId}/comments/${p.get<string>('comment')}/reactions`;
+};
 
 function commentBody(p: ParamReader): IDataObject {
 	const f = p.get<IDataObject>('additionalFields', {});
@@ -729,7 +738,7 @@ export const taskComment: ResourceDef = {
 			action: 'Add a reaction to a comment',
 			description: 'React to a comment with an emoji code',
 			fields: [
-				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
+				taskRef(),
 				commentRef,
 				{
 					displayName: 'Reaction',
@@ -740,11 +749,14 @@ export const taskComment: ResourceDef = {
 					description: 'Emoji code, for example thumbs_up or heart',
 				},
 			],
-			build: (p) => ({
-				method: 'POST',
-				path: commentPath(p),
-				body: { reactionType: p.get<string>('reactionType') },
-			}),
+			run: async (ctx, p) =>
+				oneItem(
+					await ctx.request({
+						method: 'POST',
+						path: await reactionsPath(ctx, p),
+						body: { reactionType: p.get<string>('reactionType') },
+					}),
+				),
 		},
 		{
 			operation: 'listReactions',
@@ -752,11 +764,17 @@ export const taskComment: ResourceDef = {
 			action: 'List reactions on a comment',
 			description: 'List the reactions of a comment',
 			list: true,
-			fields: [
-				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
-				commentRef,
-			],
-			build: (p) => ({ method: 'GET', path: commentPath(p), paginate: REACTION_PAGING }),
+			fields: [taskRef(), commentRef],
+			run: async (ctx, p) => {
+				const spec = {
+					method: 'GET' as const,
+					path: await reactionsPath(ctx, p),
+					paginate: REACTION_PAGING,
+				};
+				const limit = p.get<boolean>('returnAll', false) ? undefined : p.get<number>('limit', 50);
+
+				return (await ctx.requestAll(spec, limit)).map((json) => ({ json }));
+			},
 		},
 		{
 			operation: 'removeReaction',
@@ -764,7 +782,7 @@ export const taskComment: ResourceDef = {
 			action: 'Remove a reaction from a comment',
 			description: 'Remove your own reaction from a comment',
 			fields: [
-				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
+				taskRef(),
 				commentRef,
 				{
 					displayName: 'Reaction ID',
@@ -775,10 +793,13 @@ export const taskComment: ResourceDef = {
 					description: 'Identifier of the reaction (react_...), from List Reactions',
 				},
 			],
-			build: (p) => ({
-				method: 'DELETE',
-				path: encodePath`/mp/api/v1/tasks/${p.get<string>('task')}/comments/${p.get<string>('comment')}/reactions/${p.get<string>('reaction')}`,
-			}),
+			run: async (ctx, p) =>
+				oneItem(
+					await ctx.request({
+						method: 'DELETE',
+						path: `${await reactionsPath(ctx, p)}/${encodeURIComponent(p.get<string>('reaction'))}`,
+					}),
+				),
 		},
 	],
 };
