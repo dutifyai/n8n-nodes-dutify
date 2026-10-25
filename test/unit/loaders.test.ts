@@ -17,6 +17,9 @@ import {
 	wikiSpacesSpec,
 	boardsSpec,
 	viewOptions,
+	sprintGroupOptions,
+	sprintGroupsSpec,
+	sprintOptions,
 	viewsSpec,
 	widgetOptions,
 	widgetsSpec,
@@ -286,5 +289,43 @@ describe('view and widget pickers', () => {
 			{ name: 'workload (widget_b)', value: 'widget_b' },
 		]);
 		expect(widgetOptions(null)).toEqual([]);
+	});
+});
+
+describe('sprint pickers', () => {
+	const groups = [
+		{
+			identifier: 'sg_1',
+			name: 'Frontend Team',
+			sprints: [
+				{ identifier: 'spr_1', name: 'Sprint 13', status: 'DONE' },
+				{ identifier: 'spr_2', name: 'Sprint 14', status: 'IN_PROGRESS' },
+			],
+		},
+		{ identifier: 'sg_2', name: 'Backend', sprints: null },
+		{ name: 'No id' },
+	];
+
+	it('sprintGroupsSpec: GET spaces/{space}/sprint-groups', () => {
+		expect(sprintGroupsSpec('sp_eng')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/spaces/sp_eng/sprint-groups',
+		});
+	});
+
+	it('sprintGroupOptions: {name, value: identifier}; tolerates a missing list', () => {
+		expect(sprintGroupOptions(groups)).toEqual([
+			{ name: 'Frontend Team', value: 'sg_1' },
+			{ name: 'Backend', value: 'sg_2' },
+		]);
+		expect(sprintGroupOptions(null)).toEqual([]);
+	});
+
+	it('sprintOptions: every sprint of every group as "Group / Sprint (STATUS)"', () => {
+		expect(sprintOptions(groups)).toEqual([
+			{ name: 'Frontend Team / Sprint 13 (DONE)', value: 'spr_1' },
+			{ name: 'Frontend Team / Sprint 14 (IN_PROGRESS)', value: 'spr_2' },
+		]);
+		expect(sprintOptions(undefined)).toEqual([]);
 	});
 });

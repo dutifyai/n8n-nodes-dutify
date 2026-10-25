@@ -254,6 +254,39 @@ export function widgetOptions(widgets: WidgetRow[] | null | undefined): INodePro
 		}));
 }
 
+/* ---------- sprint groups and sprints ---------- */
+
+export function sprintGroupsSpec(spaceId: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/spaces/${spaceId}/sprint-groups` };
+}
+
+interface SprintGroupRow {
+	identifier?: string;
+	name?: string;
+	sprints?: Array<{ identifier?: string; name?: string; status?: string }> | null;
+}
+
+export function sprintGroupOptions(
+	groups: SprintGroupRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return (groups ?? [])
+		.filter((g) => g.identifier)
+		.map((g) => ({ name: g.name ?? (g.identifier as string), value: g.identifier as string }));
+}
+
+/** Every sprint of every group in the space, labelled "Group / Sprint (STATUS)". */
+export function sprintOptions(groups: SprintGroupRow[] | null | undefined): INodePropertyOptions[] {
+	return (groups ?? []).flatMap((g) =>
+		(g.sprints ?? [])
+			.filter((s) => s.identifier)
+			.map((s) => {
+				const label = `${g.name ?? g.identifier} / ${s.name ?? s.identifier}`;
+
+				return { name: s.status ? `${label} (${s.status})` : label, value: s.identifier as string };
+			}),
+	);
+}
+
 /** Which field of the view scope fields holds the target identifier, per scope. */
 const SCOPE_TARGET_PARAM: Record<string, string> = {
 	space: 'scopeSpaceId',
@@ -283,6 +316,16 @@ async function loadContext(ctx: ILoadOptionsFunctions, space?: string, extra: ID
 	const qs: IDataObject = { ...(space ? { space } : {}), ...extra };
 
 	return (await dutifyRequest.call(ctx, contextSpec(workspace, qs), workspace)) as WorkspaceContext;
+}
+
+async function loadSprintGroups(ctx: ILoadOptionsFunctions): Promise<SprintGroupRow[]> {
+	const workspace = selectedWorkspace(ctx);
+	const space = optionalParam(ctx, 'space');
+	if (!workspace || !space) {
+		return [];
+	}
+
+	return (await dutifyRequest.call(ctx, sprintGroupsSpec(space), workspace)) as SprintGroupRow[];
 }
 
 export const listSearch: NonNullable<NonNullable<INodeType['methods']>['listSearch']> = {
@@ -356,6 +399,12 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 		const widgets = (await dutifyRequest.call(this, widgetsSpec(view), workspace)) as WidgetRow[];
 
 		return widgetOptions(widgets);
+	},
+	async getSprintGroups(this: ILoadOptionsFunctions) {
+		return sprintGroupOptions(await loadSprintGroups(this));
+	},
+	async getSprints(this: ILoadOptionsFunctions) {
+		return sprintOptions(await loadSprintGroups(this));
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');

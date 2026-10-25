@@ -10,6 +10,7 @@ import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
 import { customField, folder, list, space, tag } from './resources/structure';
+import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
@@ -28,6 +29,7 @@ export const resources: ResourceDef[] = [
 	customField,
 	tag,
 	view,
+	sprint,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */
