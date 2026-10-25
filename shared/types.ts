@@ -1,6 +1,7 @@
 import type {
 	IBinaryData,
 	IDataObject,
+	IExecuteFunctions,
 	IHttpRequestMethods,
 	INodeExecutionData,
 	INodeProperties,
@@ -46,10 +47,38 @@ export interface ParamReader {
 	get<T = unknown>(name: string, fallback?: T): T;
 }
 
+/** The stream n8n hands out for stored binary data (a Node Readable). */
+export type ByteStream = Awaited<ReturnType<IExecuteFunctions['helpers']['getBinaryStream']>>;
+
+export interface BinaryStream {
+	/**
+	 * A stream when n8n keeps the binary on disk or in S3; the bytes themselves when it keeps them
+	 * in the item (memory mode), where they are already in memory.
+	 */
+	content: ByteStream | Buffer;
+	/** In bytes. */
+	size: number;
+	mimeType: string;
+	fileName: string;
+}
+
 export interface OperationContext {
 	request(spec: RequestSpec): Promise<unknown>;
 	requestAll(spec: RequestSpec, limit?: number): Promise<IDataObject[]>;
+	/** Reads the whole binary into memory; for small files (wiki attachments). */
 	readBinary(property: string): Promise<{ data: Buffer; mimeType: string; fileName: string }>;
+	/**
+	 * Opens the binary as a stream without reading it into memory, with its size in bytes. For
+	 * large files (recordings).
+	 */
+	openBinary(property: string): Promise<BinaryStream>;
+	/** Unauthenticated PUT of `size` bytes, streamed, to a presigned URL. */
+	putStream(
+		url: string,
+		content: ByteStream | Buffer,
+		size: number,
+		mimeType: string,
+	): Promise<void>;
 	/** Unauthenticated GET of a signed URL, returned as n8n binary data. */
 	downloadToBinary(url: string, fileName?: string): Promise<IBinaryData>;
 	/** Unauthenticated PUT of raw bytes to a presigned URL. */

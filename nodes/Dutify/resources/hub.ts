@@ -1,4 +1,4 @@
-import { ApplicationError } from 'n8n-workflow';
+import { ApplicationError, sleep } from 'n8n-workflow';
 import type { IBinaryData, IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
 import {
 	collection,
@@ -11,6 +11,8 @@ import {
 } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
+	BinaryStream,
+	ByteStream,
 	OperationContext,
 	OperationDef,
 	PaginationStyle,
@@ -415,6 +417,8 @@ const recordingOperations: OperationDef[] = [
 interface UploadSession {
 	blobName?: string;
 	uploadUrl?: string | null;
+	/** Set (16 MiB) for a resumable session on multipart storage; uploadUrl is then null. */
+	partSize?: number | null;
 }
 
 const NOTE_TEMPLATES = [
@@ -425,41 +429,160 @@ const NOTE_TEMPLATES = [
 	{ name: 'Standup', value: 'standup' },
 ];
 
+/** Hub's per-file limit (VideoService.MAX_DIRECT_UPLOAD_BYTES): 5000 MiB. */
+export const MAX_UPLOAD_BYTES = 5000 * 1024 * 1024;
+
+/** Completion answers 503 on a transient storage check; it is retried with the same blob. */
+const COMPLETE_ATTEMPTS = 3;
+export const uploadTiming = { retryDelayMs: 2000 };
+
+/** Number of parts of `partSize` bytes (the last one shorter) a file of `size` bytes takes. */
+export function partCount(size: number, partSize: number): number {
+	return Math.ceil(size / partSize);
+}
+
 /**
- * Opens an upload session, PUTs the bytes to its presigned URL (no Dutify auth), then completes
- * it, which registers the recording in the workspace and starts processing. A session that cannot
- * be completed is released, so it does not hold one of the user's 10 upload slots for 6 hours.
+ * Regroups a byte stream into parts of exactly `partSize` bytes (the last one shorter). It holds at
+ * most one part plus one incoming chunk, so a file of any size is uploaded in bounded memory.
+ */
+export async function* partsOf(
+	content: ByteStream | Buffer,
+	partSize: number,
+): AsyncGenerator<Buffer> {
+	let pending: Buffer[] = [];
+	let pendingBytes = 0;
+	const chunks: AsyncIterable<unknown> | Iterable<unknown> = Buffer.isBuffer(content)
+		? [content]
+		: content;
+	for await (const chunk of chunks) {
+		let rest = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+		while (rest.length > 0) {
+			const take = Math.min(partSize - pendingBytes, rest.length);
+			pending.push(rest.subarray(0, take));
+			pendingBytes += take;
+			rest = rest.subarray(take);
+			if (pendingBytes === partSize) {
+				yield Buffer.concat(pending, partSize);
+				pending = [];
+				pendingBytes = 0;
+			}
+		}
+	}
+	if (pendingBytes > 0) {
+		yield Buffer.concat(pending, pendingBytes);
+	}
+}
+
+const uploadSessionPath = (blobName: string) => encodePath`/api/videos/upload-session/${blobName}`;
+
+/** Stops reading the file (a no-op for bytes already in memory). */
+function close(file: BinaryStream): void {
+	if (!Buffer.isBuffer(file.content)) {
+		file.content.destroy();
+	}
+}
+
+/**
+ * Hub's multipart flow: each part is signed (POST .../parts/{n}) and PUT from the stream before the
+ * next one is read. A stream that is shorter or longer than the declared size is refused before
+ * the offending part is signed.
+ */
+async function putParts(
+	ctx: OperationContext,
+	blobName: string,
+	file: BinaryStream,
+	partSize: number,
+	mimeType: string,
+): Promise<void> {
+	const count = partCount(file.size, partSize);
+	let number = 0;
+	let sent = 0;
+	for await (const part of partsOf(file.content, partSize)) {
+		number += 1;
+		if (number > count) {
+			throw new ApplicationError(
+				`The file holds more than the ${file.size} bytes its binary data declares`,
+			);
+		}
+		const expected = Math.min(partSize, file.size - sent);
+		if (part.length < expected) {
+			throw new ApplicationError(
+				`The file ended after ${sent + part.length} of ${file.size} bytes`,
+			);
+		}
+		const signed = (await ctx.request({
+			method: 'POST',
+			path: `${uploadSessionPath(blobName)}/parts/${number}`,
+		})) as { uploadUrl?: string | null } | null;
+		if (!signed?.uploadUrl) {
+			throw new ApplicationError(`Hub returned no upload URL for part ${number}`);
+		}
+		await ctx.putBinary(signed.uploadUrl, part, mimeType);
+		sent += part.length;
+	}
+	if (sent < file.size) {
+		throw new ApplicationError(`The file ended after ${sent} of ${file.size} bytes`);
+	}
+}
+
+/** Completes the upload, retrying a 503 (Hub's transient storage check) with the same blob. */
+async function completeUpload(ctx: OperationContext, body: IDataObject): Promise<unknown> {
+	for (let attempt = 1; ; attempt++) {
+		const outcome = await ctx.request({ method: 'POST', path: '/api/videos/complete', body }).then(
+			(value) => ({ ok: true as const, value }),
+			(error: unknown) => ({ ok: false as const, error }),
+		);
+		if (outcome.ok) {
+			return outcome.value;
+		}
+		const code = String((outcome.error as { httpCode?: unknown } | null)?.httpCode ?? '');
+		if (code !== '503' || attempt >= COMPLETE_ATTEMPTS) {
+			return await Promise.reject(outcome.error);
+		}
+		await sleep(uploadTiming.retryDelayMs * attempt);
+	}
+}
+
+/**
+ * Streams a file to Hub: opens a resumable session, signs and PUTs it part by part (Hub's part
+ * size, 16 MiB) straight from n8n's binary stream, so only one part is in memory at a time, then
+ * completes it, which registers the recording in the workspace and starts processing. Storage
+ * without multipart gets the stream in one PUT. Files over 5000 MiB are refused before a session
+ * starts. A session that fails at any step is released, so it does not hold one of the user's 10
+ * upload slots for 6 hours.
  */
 async function uploadRecording(ctx: OperationContext, p: ParamReader) {
 	const property = p.get<string>('binaryPropertyName', 'data');
 	const fields = p.get<IDataObject>('additionalFields', {});
-	const { data, mimeType, fileName } = await ctx.readBinary(property);
-	if (data.length === 0) {
-		throw new ApplicationError(`The binary property "${property}" is empty; nothing to upload`);
+	const file = await ctx.openBinary(property);
+	if (file.size <= 0 || file.size > MAX_UPLOAD_BYTES) {
+		close(file);
+		throw new ApplicationError(
+			file.size <= 0
+				? `The binary property "${property}" is empty; nothing to upload`
+				: `The file is ${file.size} bytes; Hub accepts at most 5000 MiB (${MAX_UPLOAD_BYTES} bytes) per upload`,
+		);
 	}
-	const session = (await ctx.request({
-		method: 'POST',
-		path: '/api/videos/upload-session',
-		body: { fileName: isSet(fields.fileName) ? fields.fileName : fileName, fileSize: data.length },
-	})) as UploadSession | null;
+	const mimeType = file.mimeType || 'application/octet-stream';
+	const session = (await ctx
+		.request({
+			method: 'POST',
+			path: '/api/videos/upload-session',
+			body: {
+				fileName: isSet(fields.fileName) ? fields.fileName : file.fileName,
+				fileSize: file.size,
+				resumable: true,
+			},
+		})
+		.catch(async (error: unknown) => {
+			close(file);
+
+			return await Promise.reject(error);
+		})) as UploadSession | null;
 	const blobName = session?.blobName;
 	if (!blobName) {
+		close(file);
 		throw new ApplicationError('Hub returned no upload session');
-	}
-
-	let stored = false;
-	try {
-		if (!session.uploadUrl) {
-			throw new ApplicationError('Hub returned no upload URL for this session');
-		}
-		await ctx.putBinary(session.uploadUrl, data, mimeType || 'application/octet-stream');
-		stored = true;
-	} finally {
-		if (!stored) {
-			await ctx
-				.request({ method: 'DELETE', path: encodePath`/api/videos/upload-session/${blobName}` })
-				.catch(() => undefined);
-		}
 	}
 
 	const body: IDataObject = { blobName };
@@ -472,7 +595,28 @@ async function uploadRecording(ctx: OperationContext, p: ParamReader) {
 		}
 	}
 
-	return oneItem(await ctx.request({ method: 'POST', path: '/api/videos/complete', body }));
+	let completed: unknown;
+	let done = false;
+	try {
+		if (session.partSize && !session.uploadUrl) {
+			await putParts(ctx, blobName, file, session.partSize, mimeType);
+		} else if (session.uploadUrl) {
+			await ctx.putStream(session.uploadUrl, file.content, file.size, mimeType);
+		} else {
+			throw new ApplicationError('Hub returned no upload URL for this session');
+		}
+		completed = await completeUpload(ctx, body);
+		done = true;
+	} finally {
+		if (!done) {
+			close(file);
+			await ctx
+				.request({ method: 'DELETE', path: uploadSessionPath(blobName) })
+				.catch(() => undefined);
+		}
+	}
+
+	return oneItem(completed);
 }
 
 const uploadOperation: OperationDef = {
@@ -489,7 +633,7 @@ const uploadOperation: OperationDef = {
 			default: 'data',
 			required: true,
 			description:
-				'Name of the binary property of the input item that holds the file (at most 5 GB)',
+				'Name of the binary property of the input item that holds the file (at most 5000 MiB). It is streamed to Dutify in 16 MiB parts, never read into memory whole.',
 		},
 		collection('Additional Fields', 'additionalFields', [
 			{

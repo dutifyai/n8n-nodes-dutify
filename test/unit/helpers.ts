@@ -1,6 +1,6 @@
 import type { IBinaryData } from 'n8n-workflow';
 import { requestAllPages } from '../../shared/pagination';
-import type { OperationContext, ParamReader, RequestSpec } from '../../shared/types';
+import type { ByteStream, OperationContext, ParamReader, RequestSpec } from '../../shared/types';
 
 /**
  * A ParamReader over a plain object. Like n8n's getNodeParameter, reading a missing
@@ -25,6 +25,9 @@ interface FakePut {
 	url: string;
 	data: Buffer;
 	mimeType: string;
+	/** putStream only: the declared size, and that the body came as a stream. */
+	size?: number;
+	streamed?: boolean;
 }
 
 export type FakeContext = OperationContext & {
@@ -84,7 +87,51 @@ export function fakeContext(responses: unknown[]): FakeContext {
 			events.push(`PUT ${url}`);
 			puts.push({ url, data, mimeType });
 		},
+		async openBinary(property) {
+			const data = Buffer.from(`binary:${property}`);
+
+			return {
+				content: byteStream([data]),
+				size: data.length,
+				mimeType: 'text/plain',
+				fileName: `${property}.txt`,
+			};
+		},
+		async putStream(url, content, size, mimeType) {
+			events.push(`PUT ${url}`);
+			const streamed = !Buffer.isBuffer(content);
+			const data = streamed ? await drain(content) : content;
+			puts.push({ url, data, mimeType, size, streamed });
+		},
 	};
 
 	return ctx;
+}
+
+/** A stand-in for the Readable n8n's getBinaryStream returns: async-iterable and destroyable. */
+export function byteStream(chunks: Buffer[]): ByteStream {
+	const fake = {
+		destroyed: false,
+		destroy() {
+			fake.destroyed = true;
+
+			return fake;
+		},
+		async *[Symbol.asyncIterator]() {
+			for (const chunk of chunks) {
+				yield chunk;
+			}
+		},
+	};
+
+	return fake as unknown as ByteStream;
+}
+
+export async function drain(stream: ByteStream): Promise<Buffer> {
+	const chunks: Buffer[] = [];
+	for await (const chunk of stream) {
+		chunks.push(Buffer.from(chunk as Buffer));
+	}
+
+	return Buffer.concat(chunks);
 }

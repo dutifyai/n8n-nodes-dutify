@@ -2,6 +2,7 @@ import type { IDataObject, INode } from 'n8n-workflow';
 import { describe, expect, it, vi } from 'vitest';
 import { executeOperation } from '../../nodes/Dutify/registry';
 import type { ResourceDef } from '../../shared/types';
+import { byteStream, drain } from './helpers';
 
 const node: INode = {
 	id: 'n1',
@@ -11,6 +12,8 @@ const node: INode = {
 	position: [0, 0],
 	parameters: {},
 };
+
+const streamBody = byteStream([Buffer.from('hello')]);
 
 /** Resource whose operations just expose the binary helpers of the OperationContext. */
 const probe: ResourceDef = {
@@ -47,6 +50,32 @@ const probe: ResourceDef = {
 			fields: [],
 			run: async (ctx) => {
 				await ctx.putBinary('https://r2.example/obj?sig=1', Buffer.from('hello'), 'text/plain');
+
+				return [{ json: { done: true } }];
+			},
+		},
+		{
+			operation: 'open',
+			name: 'Open',
+			action: 'Open',
+			description: 'Open',
+			fields: [],
+			run: async (ctx) => {
+				const { content, size, mimeType, fileName } = await ctx.openBinary('data');
+				const streamed = !Buffer.isBuffer(content);
+				const bytes = streamed ? await drain(content) : content;
+
+				return [{ json: { text: bytes.toString('utf8'), streamed, size, mimeType, fileName } }];
+			},
+		},
+		{
+			operation: 'putStream',
+			name: 'Put Stream',
+			action: 'Put Stream',
+			description: 'Put Stream',
+			fields: [],
+			run: async (ctx) => {
+				await ctx.putStream('https://r2.example/obj?sig=1', streamBody, 5, 'audio/mpeg');
 
 				return [{ json: { done: true } }];
 			},
@@ -148,6 +177,96 @@ describe('putBinary', () => {
 		await expect(executeOperation.call(self as never, [probe])).rejects.toThrow(
 			/SignatureDoesNotMatch/,
 		);
+	});
+});
+
+describe('openBinary', () => {
+	const neverBuffer = vi.fn(async () => {
+		throw new Error('getBinaryDataBuffer must not be called');
+	});
+
+	it('streams binary data kept by id (filesystem/S3 mode) with the size from its metadata', async () => {
+		const getBinaryStream = vi.fn(async () => byteStream([Buffer.from('MP3DATA')]));
+		const getBinaryMetadata = vi.fn(async () => ({ fileSize: 7, mimeType: 'audio/mpeg' }));
+		const self = stubThis('open', {
+			assertBinaryData: () => ({
+				id: 'filesystem-v2:abc',
+				mimeType: 'audio/mpeg',
+				fileName: 'a.mp3',
+				data: 'filesystem-v2',
+			}),
+			getBinaryStream,
+			getBinaryMetadata,
+			getBinaryDataBuffer: neverBuffer,
+		});
+		const [out] = await executeOperation.call(self as never, [probe]);
+		expect(getBinaryStream).toHaveBeenCalledWith('filesystem-v2:abc', expect.any(Number));
+		expect(getBinaryMetadata).toHaveBeenCalledWith('filesystem-v2:abc');
+		expect(neverBuffer).not.toHaveBeenCalled();
+		expect(out[0].json).toEqual({
+			text: 'MP3DATA',
+			streamed: true,
+			size: 7,
+			mimeType: 'audio/mpeg',
+			fileName: 'a.mp3',
+		});
+	});
+
+	it('hands over in-memory binary data (default mode) as the bytes already in the item', async () => {
+		const getBinaryStream = vi.fn();
+		const self = stubThis('open', {
+			assertBinaryData: () => ({
+				mimeType: 'audio/wav',
+				fileName: 'b.wav',
+				data: Buffer.from('WAVE').toString('base64'),
+			}),
+			getBinaryStream,
+			getBinaryDataBuffer: neverBuffer,
+		});
+		const [out] = await executeOperation.call(self as never, [probe]);
+		expect(getBinaryStream).not.toHaveBeenCalled();
+		expect(neverBuffer).not.toHaveBeenCalled();
+		expect(out[0].json).toEqual({
+			text: 'WAVE',
+			streamed: false,
+			size: 4,
+			mimeType: 'audio/wav',
+			fileName: 'b.wav',
+		});
+	});
+
+	it('names a file without a name after the property, with the extension of its type', async () => {
+		const open = async (binary: IDataObject) => {
+			const self = stubThis('open', {
+				assertBinaryData: () => ({ data: Buffer.from('x').toString('base64'), ...binary }),
+				getBinaryDataBuffer: neverBuffer,
+			});
+			const [out] = await executeOperation.call(self as never, [probe]);
+
+			return (out[0].json as IDataObject).fileName;
+		};
+		expect(await open({ mimeType: 'audio/mpeg', fileExtension: 'mp3' })).toBe('data.mp3');
+		expect(await open({ mimeType: 'video/mp4' })).toBe('data.mp4');
+		expect(await open({ mimeType: 'audio/x-m4a' })).toBe('data.m4a');
+		expect(await open({ mimeType: 'application/octet-stream' })).toBe('data');
+	});
+});
+
+describe('putStream', () => {
+	it('PUTs the stream itself with Content-Type and Content-Length, unauthenticated', async () => {
+		const httpRequest = vi.fn(async () => '');
+		const httpRequestWithAuthentication = vi.fn();
+		const self = stubThis('putStream', { httpRequest, httpRequestWithAuthentication });
+		await executeOperation.call(self as never, [probe]);
+		expect(httpRequestWithAuthentication).not.toHaveBeenCalled();
+		const options = (httpRequest.mock.calls[0] as unknown as [IDataObject])[0];
+		expect(options).toMatchObject({
+			method: 'PUT',
+			url: 'https://r2.example/obj?sig=1',
+			headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': '5' },
+			json: false,
+		});
+		expect(options.body).toBe(streamBody);
 	});
 });
 

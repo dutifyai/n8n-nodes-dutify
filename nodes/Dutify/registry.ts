@@ -1,11 +1,12 @@
 import type {
+	IBinaryData,
 	IDataObject,
 	IExecuteFunctions,
 	INode,
 	INodeExecutionData,
 	INodeProperties,
 } from 'n8n-workflow';
-import { ApplicationError, NodeApiError, NodeOperationError } from 'n8n-workflow';
+import { ApplicationError, BINARY_ENCODING, NodeApiError, NodeOperationError } from 'n8n-workflow';
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
@@ -178,6 +179,33 @@ function errorItem(error: unknown): IDataObject {
 	return item;
 }
 
+/** Read size of a binary stream; parts are regrouped to Hub's part size by the upload. */
+const STREAM_CHUNK_BYTES = 1024 * 1024;
+
+const EXTENSIONS: Record<string, string> = {
+	'audio/mpeg': 'mp3',
+	'audio/mp3': 'mp3',
+	'audio/mp4': 'm4a',
+	'audio/x-m4a': 'm4a',
+	'audio/aac': 'aac',
+	'audio/wav': 'wav',
+	'audio/x-wav': 'wav',
+	'audio/ogg': 'ogg',
+	'audio/webm': 'webm',
+	'audio/flac': 'flac',
+	'video/mp4': 'mp4',
+	'video/webm': 'webm',
+	'video/quicktime': 'mov',
+	'video/x-matroska': 'mkv',
+};
+
+/** A binary without a file name: the property name, with the extension n8n or its type gives. */
+function nameWithExtension(property: string, binary: IBinaryData): string {
+	const extension = binary.fileExtension || EXTENSIONS[binary.mimeType];
+
+	return extension ? `${property}.${extension}` : property;
+}
+
 async function runOperation(
 	this: IExecuteFunctions,
 	defs: ResourceDef[],
@@ -210,6 +238,32 @@ async function runOperation(
 				mimeType: binary.mimeType,
 				fileName: binary.fileName ?? property,
 			};
+		},
+		openBinary: async (property) => {
+			const binary = this.helpers.assertBinaryData(itemIndex, property);
+			const fileName = binary.fileName ?? nameWithExtension(property, binary);
+			if (binary.id) {
+				// Filesystem or S3 binary mode: stream it from there, never through a Buffer.
+				const meta = await this.helpers.getBinaryMetadata(binary.id);
+				const content = await this.helpers.getBinaryStream(binary.id, STREAM_CHUNK_BYTES);
+
+				return { content, size: meta.fileSize, mimeType: binary.mimeType, fileName };
+			}
+			// Default (memory) mode: the bytes are already in the item, as base64.
+			const data = Buffer.from(binary.data, BINARY_ENCODING);
+
+			return { content: data, size: data.length, mimeType: binary.mimeType, fileName };
+		},
+		putStream: async (url, content, size, mimeType) => {
+			// Presigned storage URL: no Dutify credentials. A stream has no length the client can
+			// derive, so Content-Length is sent explicitly.
+			await this.helpers.httpRequest({
+				method: 'PUT',
+				url,
+				body: content,
+				headers: { 'Content-Type': mimeType, 'Content-Length': String(size) },
+				json: false,
+			});
 		},
 		downloadToBinary: async (url, fileName) => {
 			const response = (await this.helpers.httpRequest({
