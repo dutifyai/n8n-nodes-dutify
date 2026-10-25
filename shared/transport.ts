@@ -88,6 +88,25 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 		: undefined;
 }
 
+/** Longest plain-text error body shown as the message; anything longer is not a message. */
+const MAX_TEXT_MESSAGE = 500;
+
+/**
+ * A plain-text error body (Hub answers `No such webhook`, not JSON) as `{ message }`. HTML pages
+ * (a proxy's 502) and long dumps are left out.
+ */
+function plainText(value: unknown): Record<string, unknown> | undefined {
+	if (typeof value !== 'string') {
+		return undefined;
+	}
+	const message = value.trim();
+	if (message === '' || message.length > MAX_TEXT_MESSAGE || message.startsWith('<')) {
+		return undefined;
+	}
+
+	return { message };
+}
+
 /**
  * Digs the Dutify error body and HTTP status out of whatever the HTTP helper threw:
  * a plain `{ httpCode, response: { body } }`, an axios error (`response.status/data`),
@@ -106,7 +125,8 @@ function inspect(error: unknown, depth = 0): { body?: Record<string, unknown>; h
 		asObject(response?.body) ??
 		asObject(response?.data) ??
 		asObject(err.error) ??
-		asObject(context?.data);
+		asObject(context?.data) ??
+		plainText(response?.body ?? response?.data);
 	const status = err.httpCode ?? response?.status ?? response?.statusCode ?? err.statusCode;
 	const httpCode = status !== undefined && status !== null ? String(status) : undefined;
 

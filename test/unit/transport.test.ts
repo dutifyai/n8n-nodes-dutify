@@ -143,6 +143,32 @@ describe('toNodeError', () => {
 		expect(err.httpCode).toBe('404');
 	});
 
+	it('shows a plain-text error body as the message (Hub answers "No such webhook", not JSON)', () => {
+		const axiosLike = Object.assign(new Error('Request failed with status code 400'), {
+			response: {
+				status: 400,
+				data: 'URL must start with https:// (the payload contains meeting content)',
+			},
+		});
+		const err = toNodeError(node, axiosLike);
+		expect(err.message).toBe('URL must start with https:// (the payload contains meeting content)');
+		expect(err.httpCode).toBe('400');
+		const wrapped = toNodeError(node, new NodeApiError(node, axiosLike as never));
+		expect(wrapped.message).toBe(
+			'URL must start with https:// (the payload contains meeting content)',
+		);
+		expect(wrapped.httpCode).toBe('400');
+	});
+
+	it('does not show an HTML error page as the message', () => {
+		const axiosLike = Object.assign(new Error('Request failed with status code 502'), {
+			response: { status: 502, data: '<!DOCTYPE html><html><body>Bad gateway</body></html>' },
+		});
+		const err = toNodeError(node, axiosLike);
+		expect(err.message).not.toContain('<');
+		expect(err.httpCode).toBe('502');
+	});
+
 	it('finds the body inside an error n8n already wrapped in a NodeApiError', () => {
 		const axiosLike = Object.assign(new Error('Request failed with status code 400'), {
 			response: {
