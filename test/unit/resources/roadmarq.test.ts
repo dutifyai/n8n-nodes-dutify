@@ -190,7 +190,7 @@ describe('featureRequest', () => {
 			fr('comment').build!(
 				reader({ shortId: 'FR-42', content: 'Hi', additionalFields: { isInternal: true } }),
 			).body,
-		).toEqual({ content: 'Hi', isInternal: true });
+		).toEqual({ content: 'Hi', isInternal: true, internal: true });
 	});
 
 	it('vote POSTs an empty body for a plain upvote and the emoji for a reaction', () => {
@@ -297,8 +297,21 @@ describe('bug', () => {
 				actualResult: 'Spinner',
 				environment: { browser: 'Firefox' },
 				isSecurity: true,
+				security: true,
 			},
 		});
+	});
+
+	/*
+	 * Production (Jackson) binds the boolean flags of these lite requests by their bean names
+	 * (security, internal, public) and silently ignores isSecurity/isInternal/isPublic. The catalog
+	 * lists both names, so both are sent.
+	 */
+	it('create sends the security flag under both catalog names', () => {
+		expect(
+			bg('create').build!(reader({ board: 'b', title: 'T', additionalFields: { isSecurity: false } }))
+				.body,
+		).toEqual({ title: 'T', isSecurity: false, security: false });
 	});
 
 	it('create accepts the environment as an object and rejects invalid JSON', () => {
@@ -359,12 +372,12 @@ describe('bug', () => {
 		expect(f?.required).toBeFalsy();
 	});
 
-	it('setVisibility PATCHes isPublic', () => {
+	it('setVisibility PATCHes isPublic and public (production binds only public)', () => {
 		expect(bg('setVisibility').build!(reader({ shortId: 'BG-99', isPublic: false }))).toEqual({
 			method: 'PATCH',
 			path: `${BG}/visibility`,
 			qs: wsQs,
-			body: { isPublic: false },
+			body: { isPublic: false, public: false },
 		});
 	});
 
@@ -385,7 +398,7 @@ describe('bug', () => {
 			method: 'POST',
 			path: `${BG}/comments`,
 			qs: wsQs,
-			body: { content: 'Seen too', isInternal: true },
+			body: { content: 'Seen too', isInternal: true, internal: true },
 		});
 	});
 

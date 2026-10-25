@@ -86,6 +86,28 @@ function pick(source: IDataObject, keys: string[]): IDataObject {
 
 const collectionOf = (p: ParamReader, name: string) => p.get<IDataObject>(name, {});
 
+/**
+ * Roadmarq binds the boolean flags of its lite requests by their bean names (security, internal,
+ * public) and silently ignores isSecurity / isInternal / isPublic. The catalog lists both names,
+ * so a flag that is set is sent under both.
+ */
+const BEAN_NAMES: Record<string, string> = {
+	isSecurity: 'security',
+	isInternal: 'internal',
+	isPublic: 'public',
+};
+
+function withBeanNames(body: IDataObject): IDataObject {
+	const out: IDataObject = { ...body };
+	for (const [name, bean] of Object.entries(BEAN_NAMES)) {
+		if (name in body) {
+			out[bean] = body[name];
+		}
+	}
+
+	return out;
+}
+
 const moderationOptions: INodePropertyOptions[] = [
 	{ name: 'Approve', value: 'approve' },
 	{ name: 'Reject', value: 'reject' },
@@ -163,7 +185,7 @@ function byShortId(
 		qs: wsQs(p),
 	};
 	if (body) {
-		spec.body = body;
+		spec.body = withBeanNames(body);
 	}
 
 	return spec;
@@ -422,7 +444,7 @@ const bugOperations: OperationDef[] = [
 				body.environment = parseEnvironment(extra.environment);
 			}
 
-			return { method: 'POST', path: boardBugs(p), qs: wsQs(p), body };
+			return { method: 'POST', path: boardBugs(p), qs: wsQs(p), body: withBeanNames(body) };
 		},
 	},
 	{
