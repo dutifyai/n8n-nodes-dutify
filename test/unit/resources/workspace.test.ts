@@ -176,11 +176,35 @@ describe('workspace', () => {
 			path: '/mp/api/v1/dashboard/lite',
 			qs: { scope: 'workspace', scopeIdentifier: 'ws-1' },
 		});
-		expect(build(workspace, 'getDashboard', { scope: 'list', scopeIdentifier: 'abc-1' })).toEqual({
+	});
+
+	it('getDashboard: space, folder and list scopes send the identifier chosen in that scope picker', () => {
+		const params = { scopeSpaceId: 'spc_1', scopeFolderId: 'fld_1', scopeListId: 'lst_1' };
+		const sent = (scope: string) =>
+			(build(workspace, 'getDashboard', { scope, ...params }) as { qs: unknown }).qs;
+		expect(build(workspace, 'getDashboard', { scope: 'list', ...params })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/dashboard/lite',
-			qs: { scope: 'list', scopeIdentifier: 'abc-1' },
+			qs: { scope: 'list', scopeIdentifier: 'lst_1' },
 		});
+		expect(sent('space')).toEqual({ scope: 'space', scopeIdentifier: 'spc_1' });
+		expect(sent('folder')).toEqual({ scope: 'folder', scopeIdentifier: 'fld_1' });
+	});
+
+	it('getDashboard: the scope target is a picker per scope (no pasted UUID)', () => {
+		const fields = op(workspace, 'getDashboard').fields;
+		expect(fields.find((f) => f.name === 'scopeIdentifier')).toBeUndefined();
+		const pickers: Record<string, [string, string]> = {
+			scopeSpaceId: ['getSpaceIds', 'space'],
+			scopeFolderId: ['getFolderIds', 'folder'],
+			scopeListId: ['getListIds', 'list'],
+		};
+		for (const [name, [method, scope]] of Object.entries(pickers)) {
+			const field = fields.find((f) => f.name === name);
+			expect(field?.type).toBe('options');
+			expect(field?.typeOptions?.loadOptionsMethod).toBe(method);
+			expect(field?.displayOptions?.show).toEqual({ scope: [scope] });
+		}
 	});
 
 	it('getContext drops a blank space from the query', () => {

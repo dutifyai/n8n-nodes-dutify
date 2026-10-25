@@ -1,5 +1,6 @@
 import type { IDataObject } from 'n8n-workflow';
 import { ApplicationError } from 'n8n-workflow';
+import { idPicker } from '../../../shared/fieldHelpers';
 import type { ResourceDef } from '../../../shared/types';
 import { fetchAccessibleWorkspaces } from '../../../shared/workspaces';
 import { boardsSpec, contextSpec, wikiSpacesSpec } from '../loaders';
@@ -136,7 +137,12 @@ const REFERENCE_PATHS: Array<{ value: string; name: string; path: string; descri
 
 const DEFAULT_REFERENCE_CATEGORY = REFERENCE_PATHS[0].value;
 
-const SCOPE_NEEDING_IDENTIFIER = ['space', 'folder', 'list'];
+/** The picker holding the dashboard target of each scope; the workspace scope needs none. */
+const SCOPE_TARGET_PARAM: Record<string, string> = {
+	space: 'scopeSpaceId',
+	folder: 'scopeFolderId',
+	list: 'scopeListId',
+};
 
 const contextFlag = (name: string, displayName: string, description: string) => ({
 	displayName,
@@ -243,18 +249,22 @@ export const workspace: ResourceDef = {
 					required: true,
 					description: 'What to aggregate over',
 				},
-				{
-					displayName: 'Scope ID',
-					name: 'scopeIdentifier',
-					type: 'string',
-					default: '',
-					required: true,
-					displayOptions: { show: { scope: SCOPE_NEEDING_IDENTIFIER } },
-					description: 'UUID of the space, folder or list',
-				},
+				idPicker('Space Name or ID', SCOPE_TARGET_PARAM.space, 'getSpaceIds', {
+					field: 'scope',
+					value: 'space',
+				}),
+				idPicker('Folder Name or ID', SCOPE_TARGET_PARAM.folder, 'getFolderIds', {
+					field: 'scope',
+					value: 'folder',
+				}),
+				idPicker('List Name or ID', SCOPE_TARGET_PARAM.list, 'getListIds', {
+					field: 'scope',
+					value: 'list',
+				}),
 			],
 			build: (p) => {
 				const scope = p.get<string>('scope');
+				const target = SCOPE_TARGET_PARAM[scope];
 
 				// The backend rejects a blank scopeIdentifier for every scope, workspace included.
 				return {
@@ -262,8 +272,7 @@ export const workspace: ResourceDef = {
 					path: '/mp/api/v1/dashboard/lite',
 					qs: {
 						scope,
-						scopeIdentifier:
-							scope === 'workspace' ? p.workspace : p.get<string>('scopeIdentifier', ''),
+						scopeIdentifier: target ? p.get<string>(target, '') : p.workspace,
 					},
 				};
 			},

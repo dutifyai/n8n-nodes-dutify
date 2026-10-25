@@ -69,7 +69,7 @@ liveDescribe('workspace — live', () => {
 		expect(ws).toEqual(expect.any(Object));
 		const sp = await runOne('workspace', 'getDashboard', {
 			scope: 'space',
-			scopeIdentifier: space.identifier,
+			scopeSpaceId: space.identifier,
 		});
 		expect(sp).toEqual(expect.any(Object));
 	});
