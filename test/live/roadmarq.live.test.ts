@@ -57,18 +57,27 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 	it('board pickers list the board and its names', async () => {
 		expect((await loadOptionsOf('getBoards')).map((o) => o.value)).toContain(board);
 		expect((await run('workspace', 'listFeatureRequestBoards')).map((b) => b.slug)).toContain(board);
-		for (const loader of [
-			'getRequestStatuses',
-			'getRequestCategories',
-			'getMilestones',
-			'getBugStatuses',
-			'getSeverityLevels',
-			'getProductAreas',
-		]) {
-			const options = await loadOptionsOf(loader, { board });
-			expect(Array.isArray(options), loader).toBe(true);
-			console.log(`[live] ${loader}`, JSON.stringify(options.map((o) => o.value)));
-		}
+		const values = async (loader: Parameters<typeof loadOptionsOf>[0]) =>
+			(await loadOptionsOf(loader, { board })).map((o) => o.value);
+		// A new board's default names; it has no categories, milestones or product areas yet.
+		expect(await values('getRequestStatuses')).toEqual([
+			'Under Review',
+			'Planned',
+			'In Progress',
+			'Complete',
+		]);
+		expect(await values('getBugStatuses')).toEqual([
+			'New',
+			'Triaged',
+			'In Progress',
+			'Fixed',
+			'Released',
+			'Closed',
+		]);
+		expect(await values('getSeverityLevels')).toEqual(['Critical', 'High', 'Medium', 'Low']);
+		expect(await values('getRequestCategories')).toEqual([]);
+		expect(await values('getMilestones')).toEqual([]);
+		expect(await values('getProductAreas')).toEqual([]);
 	});
 
 	it('feature request: create, get, list, search, picker', async () => {

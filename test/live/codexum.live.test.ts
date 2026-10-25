@@ -126,7 +126,6 @@ liveDescribe('Codexum space and page — live', () => {
 			options: { showAuthor: false },
 		});
 		expect(error.message).toContain('Business');
-		console.log('[live] enableShare refusal', error.httpCode, error.description);
 	});
 
 	it('search and retrieve answer (the index may lag, so only the shape is checked)', async () => {

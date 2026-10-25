@@ -9,6 +9,8 @@
  *
  * When `.dutify-test.env` is missing, `liveDescribe` skips the whole suite.
  */
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals --
+   test-only code (not published): the harness must read .dutify-test.env from disk. */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type {
@@ -148,6 +150,12 @@ function credentials(): IDataObject {
 	return { apiKey: env.DUTIFY_API_KEY, baseUrl: env.DUTIFY_BASE_URL || 'https://dutify.ai' };
 }
 
+/**
+ * While active, PUTs to anything but Dutify (the presigned storage URLs) fail with 503, the way
+ * an unreachable storage bucket would. Used to check the upload failure path.
+ */
+export const storageOutage = { active: false };
+
 /** n8n-core style HTTP: axios semantics (qs, json, arrayFormat, returnFullResponse). */
 async function httpRequest(options: IHttpRequestOptions): Promise<unknown> {
 	const url = new URL(options.url);
@@ -175,19 +183,20 @@ async function httpRequest(options: IHttpRequestOptions): Promise<unknown> {
 			headers['Content-Type'] ??= 'application/json';
 		}
 	}
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), options.timeout ?? 120_000);
-	let response: Response;
-	try {
-		response = await fetch(url, {
-			method: options.method ?? 'GET',
-			headers,
-			body,
-			signal: controller.signal,
+	if (storageOutage.active && options.method === 'PUT' && !url.href.startsWith(live.baseUrl)) {
+		throw Object.assign(new Error('Request failed with status code 503'), {
+			name: 'AxiosError',
+			isAxiosError: true,
+			status: 503,
+			response: { status: 503, statusText: 'Service Unavailable', data: 'simulated', headers: {} },
 		});
-	} finally {
-		clearTimeout(timer);
 	}
+	const response = await fetch(url, {
+		method: options.method ?? 'GET',
+		headers,
+		body,
+		signal: AbortSignal.timeout(options.timeout ?? 120_000),
+	});
 	const raw = Buffer.from(await response.arrayBuffer());
 	const text = raw.toString('utf8');
 	let parsed: unknown = text;
@@ -404,14 +413,18 @@ export function cleanupStack() {
 				try {
 					await step.undo();
 				} catch (error) {
-					// 404: the test already deleted it, which is the point of the test.
-					if ((error as NodeApiError).httpCode !== '404') {
+					// Already gone (the test deleted it, which is the point of the test). Roadmarq
+					// answers an unknown short ID with 400 "... not found."
+					const gone =
+						(error as NodeApiError).httpCode === '404' || /not found/i.test((error as Error).message);
+					if (!gone) {
 						failures.push(`${step.label}: ${(error as Error).message}`);
 					}
 				}
 			}
 			if (failures.length > 0) {
-				console.warn(`[live cleanup] could not undo:\n  ${failures.join('\n  ')}`);
+				// Fails the suite: a leftover in the production test workspace must be noticed.
+				throw new Error(`[live cleanup] could not undo:\n  ${failures.join('\n  ')}`);
 			}
 		},
 	};

@@ -1,14 +1,14 @@
 import { randomBytes } from 'node:crypto';
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
-	live,
 	liveDescribe,
 	loadOptionsOf,
 	run,
 	runOne,
 	runOperation,
 	runId,
+	storageOutage,
 	wikiKey,
 } from './harness';
 
@@ -66,15 +66,7 @@ liveDescribe('Codexum attachment — live', () => {
 	});
 
 	it('a failed storage PUT leaves no pending attachment behind', async () => {
-		const realFetch = globalThis.fetch;
-		const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-			const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-			if (init?.method === 'PUT' && !url.startsWith(live.baseUrl)) {
-				return new Response('simulated storage outage', { status: 503 });
-			}
-
-			return await realFetch(input, init);
-		});
+		storageOutage.active = true;
 		try {
 			await expect(
 				runOperation(
@@ -85,7 +77,7 @@ liveDescribe('Codexum attachment — live', () => {
 				),
 			).rejects.toThrow();
 		} finally {
-			spy.mockRestore();
+			storageOutage.active = false;
 		}
 		const rows = await run('codexumAttachment', 'list', { space: key, pageId });
 		expect(JSON.stringify(rows)).not.toContain(`fail-${runId}.txt`);

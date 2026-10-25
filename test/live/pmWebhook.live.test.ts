@@ -1,3 +1,4 @@
+import { sleep } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
@@ -125,7 +126,7 @@ liveDescribe('PM webhook — live', () => {
 		expect(sent).toEqual(expect.any(Object));
 		let deliveries = before;
 		for (let attempt = 0; attempt < 10 && deliveries.length <= before.length; attempt++) {
-			await new Promise((resolve) => setTimeout(resolve, 1500));
+			await sleep(1500);
 			deliveries = await run('pmWebhook', 'listDeliveries', { webhook: fixture, returnAll: true });
 		}
 		expect(deliveries.length).toBeGreaterThan(before.length);
