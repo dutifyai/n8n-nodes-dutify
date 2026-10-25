@@ -4,8 +4,9 @@ n8n community nodes for [Dutify](https://dutify.ai): Project Management, Codexum
 Roadmarq (feature requests and bugs) and Hub (meeting recordings).
 
 - **Dutify** — an action node with one resource per Dutify object (see the list below).
-- **Dutify Trigger** — starts a workflow on Project Management events, delivered by a Dutify
-  webhook that the trigger registers and removes itself.
+- **Dutify Trigger** — starts a workflow on Project Management events, or when a Hub meeting
+  finishes processing. Either way it is delivered by a Dutify webhook that the trigger registers
+  and removes itself.
 
 The package has no runtime dependencies.
 
@@ -26,7 +27,9 @@ The nodes authenticate with a Dutify **personal API key** (it starts with `du_li
    - **Access:** choose **All my permissions** (the default). The nodes cover Project
      Management, Codexum, Roadmarq and Hub, so they need every scope of those products. A
      **Read only** key or a key with chosen scopes works only for the operations those scopes
-     allow; the rest fail with 403.
+     allow; the rest fail with 403. Meeting webhooks (and the Meeting Processed trigger) need
+     `webhooks:read`/`webhooks:write` together with `recordings:read`; Recording → Upload needs
+     `recordings:write`.
    - The key never grants more than your own membership: it works in the workspaces and
      products you already belong to.
 2. In n8n, add a **Dutify API** credential and paste the key. Leave **Base URL** at
@@ -38,17 +41,17 @@ A personal key works in every workspace you belong to. Each node has a **Workspa
 
 ## Resources
 
-| Area | Resources |
-|---|---|
-| Account | Account (who am I, list/find my workspaces), Workspace (context, dashboard, reference data, feature request boards, wiki spaces) |
-| Tasks | Task, Task Comment, Task Relationship, Task Sharing, Time Entry, Saved Filter |
-| Structure | Space, Folder, List, Custom Field, Tag, View |
-| Planning | Sprint (groups, sprints, tasks, burndown), Automation |
-| People | Team, Member, Invitation, Import Job, User, Notification, Activity Log |
-| Integration | PM Webhook (manage webhooks, deliveries, replay) |
-| Codexum (wiki) | Codexum Page (Markdown in and out), Codexum Space (incl. public wiki settings), Codexum Attachment (binary upload) |
-| Roadmarq | Feature Request, Bug |
-| Hub | Call, Recording (status, signed media URLs, reprocess, summaries), Lens (ask) |
+| Area           | Resources                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account        | Account (who am I, list/find my workspaces), Workspace (context, dashboard, reference data, feature request boards, wiki spaces)                      |
+| Tasks          | Task, Task Comment, Task Relationship, Task Sharing, Time Entry, Saved Filter                                                                         |
+| Structure      | Space, Folder, List, Custom Field, Tag, View                                                                                                          |
+| Planning       | Sprint (groups, sprints, tasks, burndown), Automation                                                                                                 |
+| People         | Team, Member, Invitation, Import Job, User, Notification, Activity Log                                                                                |
+| Integration    | PM Webhook (manage webhooks, deliveries, replay)                                                                                                      |
+| Codexum (wiki) | Codexum Page (Markdown in and out), Codexum Space (incl. public wiki settings), Codexum Attachment (binary upload)                                    |
+| Roadmarq       | Feature Request, Bug                                                                                                                                  |
+| Hub            | Call, Recording (upload, status, signed media URLs, reprocess, summaries), Lens (ask), Meeting Webhook (manage webhooks, test delivery, delivery log) |
 
 Pickers load names from your workspace (spaces, lists, statuses, members, boards, pages and
 more). Name-based fields such as a task status match names, ignoring case. A misspelled name
@@ -56,15 +59,29 @@ fails with a 400, and the n8n error lists the valid options.
 
 ## Trigger setup
 
-1. Add **Dutify Trigger**, pick the credential, the workspace and one or more **Events** (for
-   example *Task Created*). You can narrow the scope to a space, list or task.
+The trigger has two sources:
+
+| Source                 | Starts the workflow when                                                                     | Settings                                                                                                                                                                      | Signature header          |
+| ---------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Project Management** | a PM event happens (task created, comment added, …)                                          | one or more **Events**; optional scope (space, folder, list or task)                                                                                                          | `X-Webhook-Signature-256` |
+| **Meeting Processed**  | a Hub meeting of the workspace finishes processing (an upload, a bot or a desktop recording) | **Sections** of the meeting to send: summary, key points, action items and tasks by default; also transcript, notes, insights, themes, scores, speakers, tags, enhanced notes | `X-Dutify-Signature`      |
+
+1. Add **Dutify Trigger**, pick the credential, the **Source**, the workspace and its settings.
 2. Click **Listen for test event** or activate the workflow. The trigger registers a webhook for
    n8n's test or production URL, with a fresh random secret.
-3. Every delivery is checked against its `X-Webhook-Signature-256` header (`sha256=` HMAC-SHA256 of the raw body with
-   that secret). A delivery that fails the check is answered with 401 and does not start the
-   workflow.
-4. Deactivating the workflow (or ending the test listen) deletes the webhook, or pauses it if it
-   already delivered (see Known gaps).
+3. Every delivery is checked against its signature header (`sha256=` + the hex HMAC-SHA256 of
+   the raw body with that secret). A delivery that fails the check is answered with 401 and
+   does not start the workflow. Dutify signs no timestamp, so the check cannot reject a replayed
+   delivery; a meeting delivery carries `X-Dutify-Delivery-Id` (the same on a retry) if your
+   workflow needs to drop duplicates.
+4. Deactivating the workflow (or ending the test listen) deletes the webhook. A PM webhook that
+   Dutify refuses to delete is paused instead (see Known gaps).
+
+A meeting webhook made by the trigger is bound to the chosen workspace: it receives only that
+workspace's meetings. To try it without waiting for a meeting, use **Meeting Webhook → Send Test
+Delivery** on the trigger's webhook (it is named "n8n"): Hub sends your latest processed meeting
+of the workspace, marked `"test": true`. Hub allows 10 meeting webhooks per user and accepts only
+public `https://` URLs.
 
 n8n must be reachable from the internet for deliveries to arrive. Self-hosted instances need
 `WEBHOOK_URL` set to their public URL. If you change `WEBHOOK_URL` later, the trigger registers
@@ -74,9 +91,9 @@ Delete, or Update with Active off).
 
 ## Known gaps
 
-- **Trigger sources:** only Project Management events for now. Codexum (wiki) and Roadmarq
-  (feature request and bug) events are coming. Hub meeting events are not available to API keys.
-- **Webhook lifecycle:** deactivating the trigger deletes its webhook. If Dutify refuses the
+- **Trigger sources:** Project Management and Meeting Processed. Codexum (wiki) and Roadmarq
+  (feature request and bug) events are coming.
+- **Webhook lifecycle:** deactivating the trigger deletes its webhook. If PM refuses the
   delete (older Dutify versions answered 409 ENTITY_IN_USE for a webhook that had delivered),
   the trigger pauses the webhook instead. Activating again reuses a webhook already at that n8n
   URL and switches it back on with a new secret, so each n8n URL (test and production) keeps
@@ -84,7 +101,9 @@ Delete, or Update with Active off).
   while n8n was down) is switched back on the same way when you deactivate and activate the
   workflow again. n8n 2.x does not re-check webhook triggers when it restarts, so a restart
   alone does not switch it back on. Paused webhooks still count against the plan's webhook
-  limit (3 on FREE); delete them in Dutify if you no longer need them.
+  limit (3 on FREE); delete them in Dutify if you no longer need them. Meeting webhooks follow
+  the same rules (one per n8n URL, reused and switched back on when activated again), except that
+  Hub always deletes them.
 - **Subtasks** must be switched on in the space settings before a task can get a parent.
 - **Sprints** must be enabled in the space settings before sprint operations work. The node has
   no operation to enable them.
@@ -93,7 +112,18 @@ Delete, or Update with Active off).
   there is one wiki space.
 - **Roadmarq:** a new bug waits in the moderation queue and only appears in board lists after it
   is approved (Bug → Moderate).
-- **Hub:** API keys cannot upload recordings, so Recording and Lens act on existing calls only.
+- **Hub uploads:** Recording → Upload places the recording in the selected workspace and uses its
+  transcription quota. Hub limits uploads to 5 GB per file and 10 in progress per user. The
+  upload returns at once with the `recordingId`; processing takes a few minutes (poll Recording →
+  Get Processing Status, or use the Meeting Processed trigger). Hub keeps an uploaded file apart
+  from the recording, so Get Media URL, Get Audio URL and Get Preview URL answer 400 ("Recording
+  does not have a media file") for an uploaded recording; they work for bot and desktop
+  recordings. A finished upload reports progress 95, not 100; use `processed` from Get
+  Processing Status.
+- **Lens** spends the workspace's Lens credits; when they run out, Lens Ask fails with Hub's
+  "out of Lens credits" message.
+- **Hub errors** come as plain text (for example `No such webhook`); the node shows that text as
+  the error message.
 
 ## Development
 
@@ -112,7 +142,16 @@ npm run test:live  # live tests against a real Dutify workspace (see below)
 time. The suites skip themselves unless `.dutify-test.env` (gitignored, never committed) exists
 in the project root with `DUTIFY_BASE_URL`, `DUTIFY_API_KEY`, `DUTIFY_TEST_WORKSPACE`,
 `DUTIFY_TEST_USER_EMAIL` and `DUTIFY_TEST_USER_ID`. They use only that key, never a
-`DUTIFY_API_KEY` from the shell. Every object a test creates is deleted when its file finishes.
+`DUTIFY_API_KEY` from the shell. Every object a test creates is deleted when its file finishes,
+except the one test recording, which the Hub suite reuses on every run.
+
+Two optional settings in the same file control the Hub suite:
+
+- `DUTIFY_TEST_AUDIO`: path to an audio file. The suite uploads it (Recording → Upload) only when
+  the test workspace has no recording yet, and waits until it is processed. Without a recording
+  and without this file, the Hub suite skips.
+- `DUTIFY_TEST_PAID_OPS=1`: also runs Regenerate Summary, Reprocess and Lens Ask, which spend AI
+  credits. Leave it out for everyday runs.
 
 The test workspace is **"n8n Live Tests"** (identifier `TdoMDsRAm4`, FREE plan). It is owned by
 the test user `n8n-live-test@example.com`. Run the live tests only there.
