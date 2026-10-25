@@ -81,7 +81,9 @@ Delete, or Update with Active off).
   pauses the webhook instead (it stops delivering). Activating again switches that same
   webhook back on with a new secret, so each n8n URL (test and production) keeps one webhook.
   A webhook Dutify paused itself (for example after a day of failed deliveries while n8n was
-  down) is switched back on the same way the next time n8n starts or the workflow is activated.
+  down) is switched back on the same way when you deactivate and activate the workflow again.
+  n8n 2.x does not re-check webhook triggers when it restarts, so a restart alone does not
+  switch it back on.
   Paused webhooks still count against the plan's webhook limit (3 on FREE) and cannot be
   removed until the backend fix lands.
 - **Not usable with API keys yet** (Dutify refuses them with 403): Import Job list/get (needs
