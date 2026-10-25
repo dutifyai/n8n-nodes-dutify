@@ -14,6 +14,7 @@ import { workspaceField } from '../../shared/fields';
 import { dutifyRequest } from '../../shared/transport';
 import type { ParamReader, RequestSpec } from '../../shared/types';
 import { listSearch, loadOptions } from '../Dutify/loaders';
+import { DEFAULT_MEETING_SECTIONS, sectionsField } from '../Dutify/resources/meetingWebhook';
 import { scopeBody, scopeFields } from '../Dutify/resources/pmWebhook';
 import { sources, verifySignature } from './sources';
 import type { ListedWebhook, WebhookSource } from './sources';
@@ -34,10 +35,15 @@ function forget(stored: StoredWebhook): void {
 	delete stored.workspace;
 }
 
-const forPm = (field: INodeProperties): INodeProperties => ({
-	...field,
-	displayOptions: { show: { source: ['pm'], ...(field.displayOptions?.show ?? {}) } },
-});
+const forSources =
+	(...source: string[]) =>
+	(field: INodeProperties): INodeProperties => ({
+		...field,
+		displayOptions: { show: { source, ...(field.displayOptions?.show ?? {}) } },
+	});
+
+const forPm = forSources('pm');
+const forMeeting = forSources('meeting');
 
 function sourceOf(ctx: IHookFunctions | IWebhookFunctions): WebhookSource {
 	const name = String(ctx.getNodeParameter('source', 'pm'));
@@ -75,8 +81,7 @@ function paramReader(ctx: IHookFunctions, workspace: string): ParamReader {
 	};
 }
 
-const httpCodeOf = (error: unknown) =>
-	String((error as { httpCode?: unknown } | null)?.httpCode);
+const httpCodeOf = (error: unknown) => String((error as { httpCode?: unknown } | null)?.httpCode);
 
 /**
  * Deletes a webhook; one that is already gone counts as deleted. PM refuses to delete a webhook
@@ -97,7 +102,7 @@ async function removeWebhook(
 			if (code === '404') {
 				return undefined;
 			}
-			if (code !== '409') {
+			if (code !== '409' || !source.deactivate) {
 				return await Promise.reject(error);
 			}
 			ctx.logger?.warn(`Dutify kept webhook ${id} (it has deliveries); pausing it instead`);
@@ -125,8 +130,16 @@ function pickReusable(atUrl: ListedWebhook[]): ListedWebhook | undefined {
 	return [...atUrl].sort((a, b) => Number(b.active) - Number(a.active) || newestFirst(a, b))[0];
 }
 
-/** The source settings of the create request. A task key scope is resolved to its task ID. */
+/**
+ * The source settings of the create request: the sections for a meeting webhook; the events and
+ * scope for PM, where a task key scope is resolved to its task ID.
+ */
 async function sourceConfig(ctx: IHookFunctions, workspace: string): Promise<IDataObject> {
+	if (ctx.getNodeParameter('source', 'pm') === 'meeting') {
+		const sections = ctx.getNodeParameter('sections', DEFAULT_MEETING_SECTIONS) as string[];
+
+		return { workspace, sections: Array.isArray(sections) ? sections : DEFAULT_MEETING_SECTIONS };
+	}
 	const eventTypes = ctx.getNodeParameter('events', []) as string[];
 	if (!Array.isArray(eventTypes) || eventTypes.length === 0) {
 		throw new ApplicationError('Choose at least one event to trigger on');
@@ -171,8 +184,14 @@ export class DutifyTrigger implements INodeType {
 				name: 'source',
 				type: 'options',
 				noDataExpression: true,
-				// Can grow `codexum` (wiki), `roadmarq` (feature requests) and `meeting` (Hub) later.
+				// Can grow `codexum` (wiki) and `roadmarq` (feature requests) later.
 				options: [
+					{
+						name: 'Meeting Processed',
+						value: 'meeting',
+						description:
+							'A Hub meeting of the workspace finished processing (summary, action items and more)',
+					},
 					{
 						name: 'Project Management',
 						value: 'pm',
@@ -182,7 +201,8 @@ export class DutifyTrigger implements INodeType {
 				default: 'pm',
 				description: 'The Dutify service whose events start the workflow',
 			},
-			forPm(workspaceField),
+			forSources('pm', 'meeting')(workspaceField),
+			forMeeting(sectionsField),
 			forPm({
 				displayName: 'Events',
 				name: 'events',

@@ -22,8 +22,11 @@ export interface WebhookSource {
 	 */
 	update(existing: ListedWebhook, secret: string, cfg: IDataObject): RequestSpec;
 	remove(id: string, cfg: IDataObject): RequestSpec;
-	/** Stops deliveries without deleting; used when the service refuses the delete. */
-	deactivate(id: string, cfg: IDataObject): RequestSpec;
+	/**
+	 * Stops deliveries without deleting; used when the service refuses the delete (409). Absent
+	 * when the service always deletes.
+	 */
+	deactivate?(id: string, cfg: IDataObject): RequestSpec;
 	/** Lowercase, as n8n hands over request headers. */
 	signatureHeader: string;
 }
@@ -31,6 +34,8 @@ export interface WebhookSource {
 /** A webhook the service lists at the trigger URL. */
 export interface ListedWebhook {
 	id: string;
+	/** The URL it delivers to (the trigger URL, since only those are listed). */
+	url: string;
 	/** False once paused (by the trigger, or by the service itself, e.g. after failed deliveries). */
 	active: boolean;
 	/** Whether it is narrowed to a space, folder, list or task. */
@@ -81,6 +86,7 @@ const pm: WebhookSource = {
 			.filter((row) => row.identifier && row.url === url)
 			.map((row) => ({
 				id: String(row.identifier),
+				url,
 				active: row.active !== false,
 				scoped: Boolean(row.scopeType),
 				createdAt: row.createdAt,
@@ -108,12 +114,76 @@ const pm: WebhookSource = {
 	signatureHeader: 'x-webhook-signature-256',
 };
 
+interface HubWebhookRow {
+	id?: number | string;
+	url?: string;
+	/** UserWebhookDTO's on/off flag. */
+	enabled?: boolean;
+}
+
+const HUB_HOOKS = '/api/user/webhooks';
+
+const hubHookPath = (id: string) => `${HUB_HOOKS}/${encodeURIComponent(id)}`;
+
+/** The UserWebhookDTO on/off flag. */
+const switchedOn = (on: boolean): IDataObject => ({ enabled: on });
+
 /**
- * Sources by the value of the trigger's `source` property. Only PM for now: Hub API keys are
- * refused on `/webhooks`, so there is no `meeting` source. Later: `codexum` (wiki), `roadmarq`
- * (feature requests), `meeting` (Hub, once its keys may manage webhooks).
+ * Hub personal webhooks ("User Webhooks"), fired when a meeting finishes processing. A webhook
+ * made through a key is bound to the key's workspace (the X-Dutify-Workspace header), so the
+ * workspace travels in the header, not the path. Deliveries carry `X-Dutify-Signature`. Hub
+ * deletes a webhook together with its log, so it needs no pause fallback.
  */
-export const sources: Record<string, WebhookSource> = { pm };
+const meeting: WebhookSource = {
+	create(url, secret, cfg) {
+		return {
+			method: 'POST',
+			path: HUB_HOOKS,
+			body: { url, secret, name: 'n8n', sections: cfg.sections },
+		};
+	},
+	parseCreated(res, secret) {
+		const id = (res as HubWebhookRow | null)?.id;
+		if (id === undefined || id === null || id === '') {
+			throw new ApplicationError('Dutify did not return the ID of the created webhook');
+		}
+
+		return { id: String(id), secret };
+	},
+	list() {
+		return { method: 'GET', path: HUB_HOOKS };
+	},
+	listAtUrl(res, url) {
+		const rows = Array.isArray(res) ? (res as HubWebhookRow[]) : [];
+
+		return rows
+			.filter((row) => row.id !== undefined && row.id !== null && row.url === url)
+			.map((row) => ({
+				id: String(row.id),
+				url,
+				active: row.enabled !== false,
+				scoped: false,
+			}));
+	},
+	update(existing, secret, cfg) {
+		// Hub validates the URL on every update, so it is sent again.
+		return {
+			method: 'PUT',
+			path: hubHookPath(existing.id),
+			body: { url: existing.url, secret, sections: cfg.sections, ...switchedOn(true) },
+		};
+	},
+	remove(id) {
+		return { method: 'DELETE', path: hubHookPath(id) };
+	},
+	signatureHeader: 'x-dutify-signature',
+};
+
+/**
+ * Sources by the value of the trigger's `source` property. Later: `codexum` (wiki) and
+ * `roadmarq` (feature requests), once those services have webhooks.
+ */
+export const sources: Record<string, WebhookSource> = { pm, meeting };
 
 const SIGNATURE_PREFIX = 'sha256=';
 

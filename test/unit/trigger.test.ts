@@ -61,8 +61,8 @@ describe('PM webhook source', () => {
 	const pm = sources.pm;
 	const URL = 'https://n8n.example.com/webhook/abc/webhook';
 
-	it('only the pm source exists for now', () => {
-		expect(Object.keys(sources)).toEqual(['pm']);
+	it('the pm and meeting (Hub) sources exist', () => {
+		expect(Object.keys(sources)).toEqual(['pm', 'meeting']);
 	});
 
 	it('checks the X-Webhook-Signature-256 header (lowercase, as n8n reads headers)', () => {
@@ -170,8 +170,14 @@ describe('PM webhook source', () => {
 
 		it('returns the webhooks delivering to url, with their state, scope and creation time', () => {
 			expect(pm.listAtUrl(rows, URL)).toEqual([
-				{ id: 'whk_2', active: true, scoped: false, createdAt: undefined },
-				{ id: 'whk_3', active: false, scoped: true, createdAt: '2026-10-20T10:00:00Z' },
+				{ id: 'whk_2', url: URL, active: true, scoped: false, createdAt: undefined },
+				{
+					id: 'whk_3',
+					url: URL,
+					active: false,
+					scoped: true,
+					createdAt: '2026-10-20T10:00:00Z',
+				},
 			]);
 		});
 
@@ -197,8 +203,8 @@ describe('PM webhook source', () => {
 			'scopeEntityIdentifier',
 			'clearScope',
 		];
-		const unscoped = { id: 'whk_1', active: false, scoped: false };
-		const scoped = { id: 'whk_1', active: false, scoped: true };
+		const unscoped = { id: 'whk_1', url: URL, active: false, scoped: false };
+		const scoped = { id: 'whk_1', url: URL, active: false, scoped: true };
 
 		it('PUTs the new secret, events and active:true, a body that fits UpdateWebhookRequest', () => {
 			const spec = pm.update(unscoped, 'sek2', { workspace: 'ws 1', eventTypes: ['task-created'] });
@@ -237,6 +243,83 @@ describe('PM webhook source', () => {
 				clearScope: true,
 			});
 		});
+	});
+});
+
+/* ---------- Hub meeting source ---------- */
+
+/*
+ * Contract: https://dutify.ai/api/v1/api-catalog/User%20Webhooks and Hub origin/master
+ * UserWebhookService: deliveries carry `X-Dutify-Signature: sha256=<hex HMAC-SHA256 of the body>`
+ * (no timestamp is signed); update validates the URL every time; `enabled` is the on/off flag.
+ */
+describe('Hub meeting webhook source', () => {
+	const meeting = sources.meeting;
+	const URL = 'https://n8n.example.com/webhook/abc/webhook';
+	const HOOKS = '/api/user/webhooks';
+
+	it('checks the X-Dutify-Signature header (lowercase, as n8n reads headers)', () => {
+		expect(meeting.signatureHeader).toBe('x-dutify-signature');
+	});
+
+	it('creates via POST /api/user/webhooks with url, secret, name n8n and the sections', () => {
+		expect(
+			meeting.create(URL, 'sek', { workspace: 'ws-1', sections: ['summary', 'tasks'] }),
+		).toEqual({
+			method: 'POST',
+			path: HOOKS,
+			body: { url: URL, secret: 'sek', name: 'n8n', sections: ['summary', 'tasks'] },
+		});
+	});
+
+	it('the create response carries the integer id but never the secret, so the generated one is kept', () => {
+		expect(meeting.parseCreated({ id: 42, url: URL, hasSecret: true }, 'sek')).toEqual({
+			id: '42',
+			secret: 'sek',
+		});
+		expect(() => meeting.parseCreated({}, 'sek')).toThrow();
+		expect(() => meeting.parseCreated(null, 'sek')).toThrow();
+	});
+
+	it('lists GET /api/user/webhooks (Hub narrows it to the workspace header)', () => {
+		expect(meeting.list({ workspace: 'ws-1' })).toEqual({ method: 'GET', path: HOOKS });
+	});
+
+	it('listAtUrl maps id, url and the on/off flag; a webhook is never scoped', () => {
+		const rows = [
+			{ id: 1, url: 'https://other.example.com/x', enabled: true },
+			{ id: 2, url: URL, enabled: true },
+			{ id: 3, url: URL, enabled: false },
+			{ id: 4, url: URL },
+			{ url: URL, enabled: true },
+		];
+		expect(meeting.listAtUrl(rows, URL)).toEqual([
+			{ id: '2', url: URL, active: true, scoped: false },
+			{ id: '3', url: URL, active: false, scoped: false },
+			{ id: '4', url: URL, active: true, scoped: false },
+		]);
+		expect(meeting.listAtUrl(null, URL)).toEqual([]);
+	});
+
+	it('update PUTs the URL again (Hub requires it), a fresh secret, the sections and switches it on', () => {
+		expect(
+			meeting.update({ id: '3', url: URL, active: false, scoped: false }, 'sek2', {
+				workspace: 'ws-1',
+				sections: ['summary'],
+			}),
+		).toEqual({
+			method: 'PUT',
+			path: `${HOOKS}/3`,
+			body: { url: URL, secret: 'sek2', sections: ['summary'], enabled: true },
+		});
+	});
+
+	it('removes via DELETE /api/user/webhooks/{id}; Hub always deletes, so there is no pause fallback', () => {
+		expect(meeting.remove('3', { workspace: 'ws-1' })).toEqual({
+			method: 'DELETE',
+			path: `${HOOKS}/3`,
+		});
+		expect(meeting.deactivate).toBeUndefined();
 	});
 });
 
@@ -288,7 +371,8 @@ function hookContext(opts: {
 			}
 			throw new Error(`hookContext: missing parameter "${name}"`);
 		},
-		getNodeWebhookUrl: (name: string) => (name === 'default' ? (opts.webhookUrl ?? HOOK_URL) : undefined),
+		getNodeWebhookUrl: (name: string) =>
+			name === 'default' ? (opts.webhookUrl ?? HOOK_URL) : undefined,
 		getWorkflowStaticData: (type: string) => {
 			if (type !== 'node') {
 				throw new Error(`unexpected static data type ${type}`);
@@ -379,7 +463,9 @@ describe('checkExists', () => {
 	it('is false when the stored webhook now points at another URL', async () => {
 		const { ctx } = hookContext({
 			staticData: { webhookId: 'whk_1', secret: 'sek' },
-			responses: [[{ identifier: 'whk_1', url: 'https://old-host.example.com/webhook/7f3a/webhook' }]],
+			responses: [
+				[{ identifier: 'whk_1', url: 'https://old-host.example.com/webhook/7f3a/webhook' }],
+			],
 		});
 		expect(await hooks.checkExists.call(ctx)).toBe(false);
 	});
@@ -506,7 +592,14 @@ describe('create', () => {
 		const { ctx, calls, staticData } = hookContext({
 			staticData: { webhookId: 'whk_used', secret: 'old', workspace: 'ws-1' },
 			responses: [
-				[{ identifier: 'whk_used', url: HOOK_URL, active: false, pauseReasonCode: 'SUSTAINED_DELIVERY_FAILURES' }],
+				[
+					{
+						identifier: 'whk_used',
+						url: HOOK_URL,
+						active: false,
+						pauseReasonCode: 'SUSTAINED_DELIVERY_FAILURES',
+					},
+				],
 				{ identifier: 'whk_used', active: true },
 			],
 		});
@@ -525,8 +618,18 @@ describe('create', () => {
 		const { ctx, calls, staticData } = hookContext({
 			responses: [
 				[
-					{ identifier: 'whk_paused', url: HOOK_URL, active: false, createdAt: '2026-10-24T10:00:00Z' },
-					{ identifier: 'whk_live', url: HOOK_URL, active: true, createdAt: '2026-10-20T10:00:00Z' },
+					{
+						identifier: 'whk_paused',
+						url: HOOK_URL,
+						active: false,
+						createdAt: '2026-10-24T10:00:00Z',
+					},
+					{
+						identifier: 'whk_live',
+						url: HOOK_URL,
+						active: true,
+						createdAt: '2026-10-20T10:00:00Z',
+					},
 				],
 				{ identifier: 'whk_live', active: true },
 			],
@@ -585,7 +688,15 @@ describe('create', () => {
 	it('clears the scope of a reused row when the trigger now watches the whole workspace', async () => {
 		const { ctx, calls } = hookContext({
 			responses: [
-				[{ identifier: 'whk_1', url: HOOK_URL, active: false, scopeType: 'SPACE', scopeEntityIdentifier: 'spc_1' }],
+				[
+					{
+						identifier: 'whk_1',
+						url: HOOK_URL,
+						active: false,
+						scopeType: 'SPACE',
+						scopeEntityIdentifier: 'spc_1',
+					},
+				],
 				{ identifier: 'whk_1', active: true },
 			],
 		});
@@ -600,7 +711,15 @@ describe('create', () => {
 		const { ctx, calls } = hookContext({
 			params: { scopeType: 'TASK_LIST', scopeList: 'lst_9' },
 			responses: [
-				[{ identifier: 'whk_1', url: HOOK_URL, active: true, scopeType: 'SPACE', scopeEntityIdentifier: 'spc_1' }],
+				[
+					{
+						identifier: 'whk_1',
+						url: HOOK_URL,
+						active: true,
+						scopeType: 'SPACE',
+						scopeEntityIdentifier: 'spc_1',
+					},
+				],
 				{ identifier: 'whk_1', active: true },
 			],
 		});
@@ -642,7 +761,12 @@ describe('create', () => {
 		const { ctx, calls, staticData } = hookContext({
 			params: { workspace: 'ws-new' },
 			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-old' },
-			responses: [[], [{ identifier: 'whk_old', url: HOOK_URL }], undefined, { identifier: 'whk_new' }],
+			responses: [
+				[],
+				[{ identifier: 'whk_old', url: HOOK_URL }],
+				undefined,
+				{ identifier: 'whk_new' },
+			],
 		});
 		await hooks.create.call(ctx);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
@@ -656,7 +780,10 @@ describe('create', () => {
 
 	it('leaves webhooks of other URLs alone', async () => {
 		const { ctx, calls } = hookContext({
-			responses: [[{ identifier: 'whk_other', url: 'https://elsewhere.example.com/h' }], { identifier: 'whk_new' }],
+			responses: [
+				[{ identifier: 'whk_other', url: 'https://elsewhere.example.com/h' }],
+				{ identifier: 'whk_new' },
+			],
 		});
 		await hooks.create.call(ctx);
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
@@ -804,9 +931,144 @@ describe('delete', () => {
 	});
 });
 
+/* ---------- meeting source lifecycle ---------- */
+
+describe('meeting source (Hub "meeting processed")', () => {
+	const HUB_HOOKS = `${BASE}/api/user/webhooks`;
+	const meetingParams = { source: 'meeting', sections: ['summary', 'actionItems'] };
+
+	it('create registers the node URL with a fresh secret and the sections, in the workspace header', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: meetingParams,
+			responses: [[], { id: 42, url: HOOK_URL, hasSecret: true }],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${HUB_HOOKS}`,
+			`POST ${HUB_HOOKS}`,
+		]);
+		const body = calls[1].body as IDataObject;
+		expect(body).toEqual({
+			url: HOOK_URL,
+			secret: body.secret,
+			name: 'n8n',
+			sections: ['summary', 'actionItems'],
+		});
+		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
+		for (const call of calls) {
+			expect((call.headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
+		}
+		expect(staticData).toEqual({ webhookId: '42', secret: body.secret, workspace: 'ws-1' });
+	});
+
+	it('create needs no PM events', async () => {
+		const { ctx } = hookContext({
+			params: { ...meetingParams, events: [] },
+			responses: [[], { id: 42 }],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+	});
+
+	it('create reuses a paused webhook already at this URL (PUT with the URL, enabled) instead of adding one', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: meetingParams,
+			responses: [
+				[
+					{ id: 7, url: 'https://elsewhere.example.com/h', enabled: true },
+					{ id: 9, url: HOOK_URL, enabled: false },
+				],
+				{ id: 9, url: HOOK_URL, enabled: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${HUB_HOOKS}`,
+			`PUT ${HUB_HOOKS}/9`,
+		]);
+		const body = calls[1].body as IDataObject;
+		expect(body).toEqual({
+			url: HOOK_URL,
+			secret: body.secret,
+			sections: ['summary', 'actionItems'],
+			enabled: true,
+		});
+		expect(staticData).toEqual({ webhookId: '9', secret: body.secret, workspace: 'ws-1' });
+	});
+
+	it('create keeps one webhook per URL: an active one is reused, a second active one removed', async () => {
+		const { ctx, calls } = hookContext({
+			params: meetingParams,
+			responses: [
+				[
+					{ id: 9, url: HOOK_URL, enabled: true },
+					{ id: 11, url: HOOK_URL, enabled: true },
+				],
+				undefined,
+				{ id: 9 },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${HUB_HOOKS}`,
+			`DELETE ${HUB_HOOKS}/11`,
+			`PUT ${HUB_HOOKS}/9`,
+		]);
+	});
+
+	it('checkExists is true while the stored webhook is listed, switched on, at this URL', async () => {
+		const { ctx, calls } = hookContext({
+			params: meetingParams,
+			staticData: { webhookId: '42', secret: 'sek', workspace: 'ws-1' },
+			responses: [[{ id: 42, url: HOOK_URL, enabled: true }]],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`GET ${HUB_HOOKS}`]);
+	});
+
+	it('checkExists is false when the stored webhook is switched off in Hub, so create turns it on', async () => {
+		const { ctx } = hookContext({
+			params: meetingParams,
+			staticData: { webhookId: '42', secret: 'sek', workspace: 'ws-1' },
+			responses: [[{ id: 42, url: HOOK_URL, enabled: false }]],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
+	});
+
+	it('delete removes the stored webhook and clears the static data', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: meetingParams,
+			staticData: { webhookId: '42', secret: 'sek', workspace: 'ws-1' },
+			responses: [undefined],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE ${HUB_HOOKS}/42`]);
+		expect(staticData).toEqual({});
+	});
+
+	it('delete treats 404 as gone; any other refusal (no pause fallback for Hub) keeps the static data', async () => {
+		const gone = hookContext({
+			params: meetingParams,
+			staticData: { webhookId: '42', secret: 'sek' },
+			responses: [httpError(404, 'No such webhook')],
+		});
+		expect(await hooks.delete.call(gone.ctx)).toBe(true);
+		expect(gone.staticData).toEqual({});
+
+		const refused = hookContext({
+			params: meetingParams,
+			staticData: { webhookId: '42', secret: 'sek' },
+			responses: [httpError(409, 'conflict')],
+		});
+		expect(await hooks.delete.call(refused.ctx)).toBe(false);
+		expect(refused.calls).toHaveLength(1);
+		expect(refused.staticData).toEqual({ webhookId: '42', secret: 'sek' });
+	});
+});
+
 /* ---------- webhook() ---------- */
 
 function webhookContext(opts: {
+	source?: string;
 	staticData?: IDataObject;
 	rawBody?: Buffer;
 	headers?: Record<string, string>;
@@ -852,7 +1114,7 @@ function webhookContext(opts: {
 	};
 	const ctx = {
 		getNodeParameter(name: string, fallback?: unknown) {
-			return name === 'source' ? 'pm' : fallback;
+			return name === 'source' ? (opts.source ?? 'pm') : fallback;
 		},
 		getWorkflowStaticData: () => opts.staticData ?? {},
 		getRequestObject: () => req,
@@ -982,6 +1244,51 @@ describe('webhook()', () => {
 	});
 });
 
+describe('webhook() for the meeting source', () => {
+	const secret = 'd'.repeat(64);
+	const body = {
+		event: 'meeting.processed',
+		test: false,
+		hubUrl: 'https://dutify.ai/call/7',
+		sentAt: '2026-10-25T10:00:00Z',
+		meeting: { recordingId: 501, callId: 7, title: 'Standup', summary: 'Two action items' },
+	};
+	const raw = Buffer.from(JSON.stringify(body));
+
+	it('accepts X-Dutify-Signature: sha256=<HMAC-SHA256 of the raw body> and starts the workflow', async () => {
+		const { ctx, response } = webhookContext({
+			source: 'meeting',
+			staticData: { webhookId: '42', secret },
+			rawBody: raw,
+			headers: { 'x-dutify-signature': sign(secret, raw), 'x-dutify-delivery-id': 'k1' },
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toEqual([[{ json: body }]]);
+		expect(response.statusCode).toBe(200);
+	});
+
+	it('answers 401 to a delivery signed with another secret, or unsigned', async () => {
+		for (const headers of [
+			{ 'x-dutify-signature': sign('other', raw) },
+			{},
+			// The PM header does not count for the meeting source.
+			{ 'x-webhook-signature-256': sign(secret, raw) },
+		]) {
+			const { ctx, response } = webhookContext({
+				source: 'meeting',
+				staticData: { webhookId: '42', secret },
+				rawBody: raw,
+				headers,
+				body,
+			});
+			const result = await trigger.webhook.call(ctx);
+			expect(result.workflowData).toBeUndefined();
+			expect(response.statusCode).toBe(401);
+		}
+	});
+});
+
 /* ---------- description ---------- */
 
 describe('description', () => {
@@ -1004,21 +1311,35 @@ describe('description', () => {
 		]);
 	});
 
-	it('has a source options property with only pm for now', () => {
+	it('has a source options property with pm (the default) and meeting', () => {
 		const source = prop('source');
 		expect(source.type).toBe('options');
 		expect(source.default).toBe('pm');
-		expect((source.options ?? []).map((o) => (o as { value: string }).value)).toEqual(['pm']);
+		expect((source.options ?? []).map((o) => (o as { value: string }).value).sort()).toEqual([
+			'meeting',
+			'pm',
+		]);
 	});
 
-	it('for pm: the workspace locator, shown for the pm source', () => {
+	it('the workspace locator is shown for both sources (a meeting webhook is bound to it)', () => {
 		const ws = prop('workspace');
 		expect(ws.type).toBe('resourceLocator');
 		expect(ws.required).toBe(true);
-		expect(ws.displayOptions?.show?.source).toEqual(['pm']);
+		expect([...(ws.displayOptions?.show?.source ?? [])].sort()).toEqual(['meeting', 'pm']);
+		expect(props.filter((p) => p.name === 'workspace')).toHaveLength(1);
 		const listMode = ws.modes?.find((m) => m.name === 'list');
 		expect(listMode?.typeOptions?.searchListMethod).toBe('searchWorkspaces');
 		expect(trigger.methods.listSearch.searchWorkspaces).toBeTypeOf('function');
+	});
+
+	it('for meeting: a sections multiOptions over every WebhookSection, preset to the four defaults', () => {
+		const sections = prop('sections');
+		expect(sections.type).toBe('multiOptions');
+		expect(sections.displayOptions?.show?.source).toEqual(['meeting']);
+		expect(sections.default).toEqual(['summary', 'keyPoints', 'actionItems', 'tasks']);
+		expect((sections.options ?? []).map((o) => (o as { value: string }).value)).toContain(
+			'transcript',
+		);
 	});
 
 	it('for pm: required events multiOptions over PM_EVENT_TYPES', () => {
