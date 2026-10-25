@@ -1,3 +1,4 @@
+import type { NodeApiError } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
@@ -15,6 +16,21 @@ import {
  * The node has no board operations, so the board is created and deleted with the Roadmarq board
  * endpoints directly (POST / DELETE /api/roadmarq/v1/boards). Everything else goes through the node.
  */
+/**
+ * Cleanup for one request or bug. Roadmarq answers a short ID that no longer exists with 400
+ * "shortId '<id>' not found." (not 404), so exactly that answer, naming this item, means gone.
+ */
+const deleteItem = (resource: 'featureRequest' | 'bug', shortId: string) => async () => {
+	await runOne(resource, 'delete', { shortId }).catch(async (error: unknown) => {
+		const e = error as NodeApiError;
+		if (e.httpCode === '400' && e.message.includes(`shortId '${shortId}' not found`)) {
+			return undefined;
+		}
+
+		return await Promise.reject(error);
+	});
+};
+
 liveDescribe('Roadmarq feature request and bug — live', () => {
 	const cleanup = cleanupStack();
 	const board = `n8n-live-${runId}`;
@@ -88,10 +104,7 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 		});
 		request = String(created.shortId);
 		expect(request).toMatch(/^NFR-\d+$/);
-		cleanup.add(
-			`request ${request}`,
-			async () => await runOne('featureRequest', 'delete', { shortId: request }),
-		);
+		cleanup.add(`request ${request}`, deleteItem('featureRequest', request));
 
 		expect(await runOne('featureRequest', 'get', { shortId: request })).toMatchObject({
 			shortId: request,
@@ -161,7 +174,7 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 		});
 		bugId = String(created.shortId);
 		expect(bugId).toMatch(/^NBG-\d+$/);
-		cleanup.add(`bug ${bugId}`, async () => await runOne('bug', 'delete', { shortId: bugId }));
+		cleanup.add(`bug ${bugId}`, deleteItem('bug', bugId));
 
 		const fetched = await runOne('bug', 'get', { shortId: bugId });
 		expect(fetched).toMatchObject({ shortId: bugId, title: `Live bug ${runId}` });
@@ -224,7 +237,7 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 			additionalFields: { isSecurity: true, severity: 'Critical' },
 		});
 		const shortId = String(created.shortId);
-		cleanup.add(`bug ${shortId}`, async () => await runOne('bug', 'delete', { shortId }));
+		cleanup.add(`bug ${shortId}`, deleteItem('bug', shortId));
 		expect(created).toMatchObject({ security: true, public: false, severity: 'Critical' });
 	});
 

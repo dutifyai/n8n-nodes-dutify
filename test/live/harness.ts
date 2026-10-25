@@ -413,11 +413,9 @@ export function cleanupStack() {
 				try {
 					await step.undo();
 				} catch (error) {
-					// Already gone (the test deleted it, which is the point of the test). Roadmarq
-					// answers an unknown short ID with 400 "... not found."
-					const gone =
-						(error as NodeApiError).httpCode === '404' || /not found/i.test((error as Error).message);
-					if (!gone) {
+					// 404: already gone (the test deleted it, which is the point of the test). A step
+					// whose API answers a missing object differently handles that in its own undo.
+					if ((error as NodeApiError).httpCode !== '404') {
 						failures.push(`${step.label}: ${(error as Error).message}`);
 					}
 				}

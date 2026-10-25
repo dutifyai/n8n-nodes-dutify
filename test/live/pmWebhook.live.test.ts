@@ -1,4 +1,5 @@
 import { sleep } from 'n8n-workflow';
+import type { IDataObject, NodeApiError } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
@@ -13,6 +14,28 @@ import {
 
 /** Deliveries go to example.com (IANA-reserved, nobody receives them). */
 const HOOK_PREFIX = 'https://example.com/n8n-live/';
+/** The one webhook allowed to deliver; matched exactly so a round-trip leftover is never adopted. */
+const FIXTURE_URL = `${HOOK_PREFIX}fixture`;
+
+/** The plan's webhook quota is full (402 QUOTA_EXCEEDED): the test cannot create a webhook. */
+const isQuotaFull = (error: unknown) => {
+	const e = error as NodeApiError;
+
+	return (
+		e?.httpCode === '402' || /QUOTA_EXCEEDED|plan limit/i.test(`${e?.message} ${e?.description}`)
+	);
+};
+
+/** Creates a webhook, or skips the test with the reason when the plan's quota is full. */
+async function createOrSkip(skip: (note: string) => void, params: IDataObject) {
+	return await runOne('pmWebhook', 'create', params).catch(async (error: unknown) => {
+		if (isQuotaFull(error)) {
+			skip(`webhook quota full, cannot create: ${(error as Error).message}`);
+		}
+
+		return await Promise.reject(error);
+	});
+}
 
 /*
  * BACKEND BUG (PM WebhookService.deleteWebhook + migration 095, origin/master 946745b2):
@@ -46,9 +69,11 @@ liveDescribe('PM webhook — live', () => {
 		expect(options.map((o) => o.value)).toContain('task-created');
 	});
 
-	it('create scoped to a space; get, list, picker, usage, update, delete (never delivers)', async () => {
-		const url = `${HOOK_PREFIX}${runId}`;
-		const created = await runOne('pmWebhook', 'create', {
+	it('create scoped to a space; get, list, picker, usage, update, delete (never delivers)', async ({
+		skip,
+	}) => {
+		const url = `${HOOK_PREFIX}roundtrip-${runId}`;
+		const created = await createOrSkip(skip, {
 			url,
 			secret: `s-${runId}`,
 			eventTypes: ['task-created', 'task-status-changed'],
@@ -91,17 +116,19 @@ liveDescribe('PM webhook — live', () => {
 		expect(gone.httpCode).toBe('404');
 	});
 
-	it('test, listDeliveries, delivery picker and replayDelivery on the parked fixture webhook', async () => {
-		const parked = (await run('pmWebhook', 'list', { additionalFields: { all: true } })).find((w) =>
-			String(w.url).startsWith(HOOK_PREFIX),
+	it('test, listDeliveries, delivery picker and replayDelivery on the parked fixture webhook', async ({
+		skip,
+	}) => {
+		const parked = (await run('pmWebhook', 'list', { additionalFields: { all: true } })).find(
+			(w) => w.url === FIXTURE_URL,
 		);
 		if (parked) {
 			fixture = String(parked.identifier);
 		} else {
 			fixture = String(
 				(
-					await runOne('pmWebhook', 'create', {
-						url: `${HOOK_PREFIX}fixture`,
+					await createOrSkip(skip, {
+						url: FIXTURE_URL,
 						secret: `s-${runId}`,
 						eventTypes: ['task-created'],
 						scopeType: 'SPACE',
@@ -138,9 +165,23 @@ liveDescribe('PM webhook — live', () => {
 		expect(replayed).toEqual(expect.any(Object));
 	});
 
-	it('delete of a webhook with deliveries is refused with 409 ENTITY_IN_USE', async () => {
+	/*
+	 * BACKEND BUG (see the top of this file): a webhook that delivered cannot be deleted. The first
+	 * test pins today's 409; the tripwire holds the correct behaviour and starts failing (and so
+	 * gets noticed) once the backend deletes it.
+	 */
+	it('delete of a webhook with deliveries is refused today with 409 ENTITY_IN_USE', async ({
+		skip,
+	}) => {
+		if (!fixture) {
+			skip('no fixture webhook');
+		}
 		const error = await runError('pmWebhook', 'delete', { webhook: fixture });
 		expect(error.httpCode).toBe('409');
 		expect(error.description).toContain('ENTITY_IN_USE');
+	});
+
+	it.fails('delete of a webhook with deliveries succeeds (fails in production, see above)', async () => {
+		expect(await runOne('pmWebhook', 'delete', { webhook: fixture })).toEqual({ success: true });
 	});
 });

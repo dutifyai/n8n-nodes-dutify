@@ -104,6 +104,21 @@ liveDescribe('task, task comment, task relationship — live', () => {
 	// resolve a task key"; with the task ID: "Cannot specify both parent task and task list"
 	// (the mapper copies the parent's list into the request). `it.fails` turns red once the
 	// backend is fixed, so this test then becomes a plain `it`.
+	it('subtasks: create with only a parent is refused today with exactly this 400', async () => {
+		const byId = await runError('task', 'create', {
+			title: `Live subtask by create ${runId}`,
+			additionalFields: { parent: task.identifier },
+		});
+		expect(byId.httpCode).toBe('400');
+		expect(byId.message).toContain('Cannot specify both parent task and task list');
+		const byKey = await runError('task', 'create', {
+			title: `Live subtask by create ${runId}`,
+			additionalFields: { parent: task.key },
+		});
+		expect(byKey.httpCode).toBe('400');
+		expect(byKey.message).toContain('workspaceIdentifier is required to resolve a task key');
+	});
+
 	it.fails('subtasks: create with only a parent (fails in production, see above)', async () => {
 		const created = await runOne('task', 'create', {
 			title: `Live subtask by create ${runId}`,
