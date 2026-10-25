@@ -24,8 +24,8 @@ export const account: ResourceDef = {
 		},
 		{
 			operation: 'listWorkspaces',
-			name: 'List Workspaces',
-			action: 'List workspaces',
+			name: 'Get Many Workspaces',
+			action: 'Get many workspaces',
 			description:
 				'List the workspaces the key can use. A workspace key returns only its bound workspace.',
 			fields: [],
@@ -163,16 +163,16 @@ export const workspace: ResourceDef = {
 	operations: [
 		{
 			operation: 'listFeatureRequestBoards',
-			name: 'List Feature Request Boards',
-			action: 'List feature request boards',
+			name: 'Get Many Feature Request Boards',
+			action: 'Get many feature request boards',
 			description: 'List the Roadmarq feature request boards you can view in the workspace',
 			fields: [],
 			build: (p) => boardsSpec(p.workspace),
 		},
 		{
 			operation: 'listWikiSpaces',
-			name: 'List Wiki Spaces',
-			action: 'List wiki spaces',
+			name: 'Get Many Wiki Spaces',
+			action: 'Get many wiki spaces',
 			description: 'List the Codexum wiki spaces you can view in the workspace, with page counts',
 			fields: [],
 			build: (p) => wikiSpacesSpec(p.workspace),

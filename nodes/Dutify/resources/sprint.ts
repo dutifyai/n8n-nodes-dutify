@@ -107,8 +107,8 @@ const changeTasks = (
 const operations: OperationDef[] = [
 	{
 		operation: 'listGroups',
-		name: 'List Sprint Groups',
-		action: 'List the sprint groups of a space',
+		name: 'Get Many Sprint Groups',
+		action: 'Get many sprint groups of a space',
 		description: 'List the sprint groups of a space, each with a summary of its sprints',
 		fields: [spaceField()],
 		build: (p) => ({ method: 'GET', path: groupsPath(p) }),

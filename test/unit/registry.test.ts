@@ -330,3 +330,19 @@ describe('field descriptions', () => {
 		expect(all).not.toContain('tsk_');
 	});
 });
+
+describe('operation labels', () => {
+	// n8n convention: list operations are labelled "Get Many" (action "Get many ..."), not "List".
+	it('label list operations Get Many, never List', async () => {
+		const { resources } = await import('../../nodes/Dutify/registry');
+		const labels = resources.flatMap((r) =>
+			r.operations.map((o) => ({ op: `${r.value}.${o.operation}`, name: o.name, action: o.action })),
+		);
+		expect(labels.filter((l) => /^List\b/.test(l.name)).map((l) => l.op)).toEqual([]);
+		expect(labels.filter((l) => /^List\b/.test(l.action)).map((l) => l.op)).toEqual([]);
+		const byOp = Object.fromEntries(labels.map((l) => [l.op, l.name]));
+		expect(byOp['automation.list']).toBe('Get Many');
+		expect(byOp['taskComment.listReactions']).toBe('Get Many Reactions');
+		expect(byOp['account.listWorkspaces']).toBe('Get Many Workspaces');
+	});
+});

@@ -71,8 +71,8 @@ async function upload(ctx: OperationContext, p: ParamReader) {
 const operations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List attachments of a page',
+		name: 'Get Many',
+		action: 'Get many attachments of a page',
 		description: 'List the file attachments of a page',
 		fields: [spaceField(), pageIdField()],
 		build: (p) => ({ method: 'GET', path: attachmentsPath(p) }),

@@ -278,8 +278,8 @@ function pickWidget(fields: IDataObject): IDataObject {
 
 const listOp: OperationDef = {
 	operation: 'list',
-	name: 'List',
-	action: 'List views',
+	name: 'Get Many',
+	action: 'Get many views',
 	description: 'List the views attached to a workspace, space, folder or list',
 	list: true,
 	fields: scopeFields('scope', 'Scope', 'Where the views live'),
@@ -437,8 +437,8 @@ const operations: OperationDef[] = [
 	},
 	{
 		operation: 'listWidgets',
-		name: 'List Widgets',
-		action: 'List the widgets of a dashboard',
+		name: 'Get Many Widgets',
+		action: 'Get many widgets of a dashboard',
 		description: 'List the widgets on a view, in order. Views other than dashboards have none',
 		fields: viewFields(),
 		build: (p) => ({ method: 'GET', path: widgetsPath(p) }),

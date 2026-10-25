@@ -561,8 +561,8 @@ export const task: ResourceDef = {
 		},
 		{
 			operation: 'listTypes',
-			name: 'List Types',
-			action: 'List task types',
+			name: 'Get Many Types',
+			action: 'Get many task types',
 			description: 'List the task types of the workspace',
 			list: true,
 			fields: [],
@@ -672,8 +672,8 @@ export const taskComment: ResourceDef = {
 	operations: [
 		{
 			operation: 'list',
-			name: 'List',
-			action: 'List comments on a task',
+			name: 'Get Many',
+			action: 'Get many comments on a task',
 			description: 'List the comments of a task',
 			list: true,
 			fields: [taskRef()],
@@ -761,8 +761,8 @@ export const taskComment: ResourceDef = {
 		},
 		{
 			operation: 'listReactions',
-			name: 'List Reactions',
-			action: 'List reactions on a comment',
+			name: 'Get Many Reactions',
+			action: 'Get many reactions on a comment',
 			description: 'List the reactions of a comment',
 			list: true,
 			fields: [taskRef(), commentRef],
@@ -791,7 +791,7 @@ export const taskComment: ResourceDef = {
 					type: 'string',
 					default: '',
 					required: true,
-					description: 'Identifier of the reaction (react_...), from List Reactions',
+					description: 'Identifier of the reaction (react_...), from Get Many Reactions',
 				},
 			],
 			run: async (ctx, p) =>
@@ -814,8 +814,8 @@ export const taskRelationship: ResourceDef = {
 	operations: [
 		{
 			operation: 'list',
-			name: 'List',
-			action: 'List relationships of a task',
+			name: 'Get Many',
+			action: 'Get many relationships of a task',
 			description: 'List the links where the task is the owner or the target',
 			list: true,
 			fields: [taskRef()],
@@ -870,7 +870,7 @@ export const taskRelationship: ResourceDef = {
 					type: 'string',
 					default: '',
 					required: true,
-					description: 'Identifier of the relationship (rel_...), from List',
+					description: 'Identifier of the relationship (rel_...), from Get Many',
 				},
 			],
 			build: (p) => ({

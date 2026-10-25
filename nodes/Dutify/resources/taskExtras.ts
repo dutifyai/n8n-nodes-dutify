@@ -168,8 +168,8 @@ const timeEntriesPath = (taskId: string) => encodePath`/mp/api/v1/tasks/${taskId
 const timeEntryOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List the time entries of a task',
+		name: 'Get Many',
+		action: 'Get many time entries of a task',
 		description: 'List the time logged against a task',
 		list: true,
 		fields: [taskField()],
@@ -287,8 +287,8 @@ function parseGroups(value: unknown): IDataObject[] {
 const savedFilterOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List saved filters',
+		name: 'Get Many',
+		action: 'Get many saved filters',
 		description: 'List your saved filters of a list. Saved filters are private to their owner',
 		fields: [listPicker()],
 		build: (p) => ({ method: 'GET', path: filtersPath(p) }),

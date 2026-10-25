@@ -73,8 +73,8 @@ const SEARCH_DESCRIPTION =
 const callOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List calls',
+		name: 'Get Many',
+		action: 'Get many calls',
 		description: 'List your calls, most recent first',
 		fields: [collection('Additional Fields', 'additionalFields', [liteRowsOption])],
 		list: true,

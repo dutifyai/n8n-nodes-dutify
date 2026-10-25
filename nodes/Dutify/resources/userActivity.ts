@@ -212,8 +212,8 @@ const workspaceNotificationsPath = (p: ParamReader) =>
 const notificationOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List notifications',
+		name: 'Get Many',
+		action: 'Get many notifications',
 		description: 'List the notifications of the current user in the workspace',
 		list: true,
 		fields: [
@@ -337,8 +337,8 @@ async function activityPath(ctx: OperationContext, p: ParamReader): Promise<stri
 const activityOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List activity log entries',
+		name: 'Get Many',
+		action: 'Get many activity log entries',
 		description: 'Read the activity log of the workspace, a space, a folder, a list or a task',
 		list: true,
 		fields: [

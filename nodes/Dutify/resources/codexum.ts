@@ -246,8 +246,8 @@ const pageOperations: OperationDef[] = [
 	},
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List pages of a space',
+		name: 'Get Many',
+		action: 'Get many pages of a space',
 		description: 'List the pages of a space (titles and slugs, no body), one level at a time',
 		list: true,
 		fields: [
@@ -562,8 +562,8 @@ const publicSettingsFields = (): INodeProperties[] => [
 const spaceOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List spaces',
+		name: 'Get Many',
+		action: 'Get many spaces',
 		description: 'List the wiki spaces you can see in the workspace',
 		list: true,
 		fields: [],

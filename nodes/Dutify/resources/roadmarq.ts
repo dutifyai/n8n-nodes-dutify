@@ -203,8 +203,8 @@ const boardBugs = (p: ParamReader) =>
 const requestOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List feature requests',
+		name: 'Get Many',
+		action: 'Get many feature requests',
 		description: 'List the feature requests of a board, or search them by title',
 		list: true,
 		fields: [
@@ -374,8 +374,8 @@ function parseEnvironment(value: unknown): IDataObject {
 const bugOperations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List bugs',
+		name: 'Get Many',
+		action: 'Get many bugs',
 		description: 'List the bug reports of a board',
 		list: true,
 		fields: [

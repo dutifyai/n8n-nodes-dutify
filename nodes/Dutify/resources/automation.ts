@@ -167,8 +167,8 @@ const activeField = (): INodeProperties => ({
 const operations: OperationDef[] = [
 	{
 		operation: 'list',
-		name: 'List',
-		action: 'List automations',
+		name: 'Get Many',
+		action: 'Get many automations',
 		description: 'List the automations of a space, a folder or a list',
 		list: true,
 		fields: [
