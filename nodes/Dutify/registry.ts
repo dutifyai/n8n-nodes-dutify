@@ -10,9 +10,12 @@ import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
 import { importJob, invitation, member, team } from './resources/admin';
+import { automation } from './resources/automation';
 import { customField, folder, list, space, tag } from './resources/structure';
 import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
+import { savedFilter, taskSharing, timeEntry } from './resources/taskExtras';
+import { activityLog, notification, user } from './resources/userActivity';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
@@ -35,6 +38,13 @@ export const resources: ResourceDef[] = [
 	member,
 	invitation,
 	importJob,
+	automation,
+	taskSharing,
+	user,
+	timeEntry,
+	savedFilter,
+	notification,
+	activityLog,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

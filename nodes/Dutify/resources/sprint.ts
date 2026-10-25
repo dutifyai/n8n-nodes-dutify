@@ -12,6 +12,7 @@ import {
 	text,
 	toInstant,
 } from '../../../shared/fieldHelpers';
+import { resolveTaskIds } from '../../../shared/taskRefs';
 import { encodePath } from '../../../shared/transport';
 import type { OperationDef, ParamReader, ResourceDef } from '../../../shared/types';
 
@@ -56,38 +57,6 @@ function sprintBody(fields: IDataObject): IDataObject {
 	}
 
 	return body;
-}
-
-interface TaskRow {
-	identifier?: string;
-}
-
-const TASK_ID_PREFIX = 'tsk_';
-
-/** The sprint endpoints take task IDs. A task key such as PROJ-42 is looked up first. */
-async function resolveTaskIds(
-	request: (spec: { method: 'GET'; path: string; qs: IDataObject }) => Promise<unknown>,
-	refs: string[],
-	workspace: string,
-): Promise<string[]> {
-	const ids: string[] = [];
-	for (const ref of refs) {
-		if (ref.startsWith(TASK_ID_PREFIX)) {
-			ids.push(ref);
-			continue;
-		}
-		const found = (await request({
-			method: 'GET',
-			path: encodePath`/mp/api/v1/tasks/lite/${ref}`,
-			qs: { workspace },
-		})) as TaskRow | null;
-		if (!found?.identifier) {
-			throw new ApplicationError(`Could not find the ID of task "${ref}"`);
-		}
-		ids.push(found.identifier);
-	}
-
-	return ids;
 }
 
 const taskIdsField: INodeProperties = {

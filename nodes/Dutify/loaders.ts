@@ -6,6 +6,7 @@ import type {
 	INodePropertyOptions,
 	INodeType,
 } from 'n8n-workflow';
+import { resolveTaskId } from '../../shared/taskRefs';
 import { dutifyRequest, encodePath } from '../../shared/transport';
 import type { RequestSpec } from '../../shared/types';
 import { fetchAccessibleWorkspaces, type Fetch } from '../../shared/workspaces';
@@ -401,6 +402,90 @@ export function importJobOptions(
 		});
 }
 
+/* ---------- automations, saved filters, notifications, time entries ---------- */
+
+export function automationsSpec(scope: string, target: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: `/mp/api/v1/automations/${encodeURIComponent(scope)}/${encodeURIComponent(target)}`,
+		qs: { size: PICKER_PAGE_SIZE },
+	};
+}
+
+export function automationOptions(
+	rows: Array<{ identifier?: string; name?: string; active?: boolean }> | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((a) => a.identifier)
+		.map((a) => {
+			const label = a.name ?? (a.identifier as string);
+
+			return {
+				name: a.active === false ? `${label} (disabled)` : label,
+				value: a.identifier as string,
+			};
+		});
+}
+
+export function savedFiltersSpec(list: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/lists/${list}/filters` };
+}
+
+export function savedFilterOptions(
+	rows: Array<{ id?: number; name?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((f) => f.id !== undefined && f.id !== null)
+		.map((f) => ({ name: f.name ?? `Filter ${f.id}`, value: String(f.id) }));
+}
+
+export function notificationsSpec(workspace: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/notifications/workspace/${workspace}`,
+		qs: { unreadOnly: true, size: PICKER_PAGE_SIZE },
+	};
+}
+
+export function notificationOptions(
+	rows: Array<{ identifier?: string; type?: string; createdAt?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((n) => n.identifier)
+		.map((n) => {
+			const label = n.type ?? (n.identifier as string);
+
+			return {
+				name: n.type && n.createdAt ? `${label} (${n.createdAt})` : label,
+				value: n.identifier as string,
+			};
+		});
+}
+
+export function timeEntriesSpec(taskId: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/tasks/${taskId}/time-entries`,
+		qs: { size: PICKER_PAGE_SIZE },
+	};
+}
+
+export function timeEntryOptions(
+	rows:
+		| Array<{ id?: number; timeSpent?: number; startedAt?: string; notes?: string }>
+		| null
+		| undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((e) => e.id !== undefined && e.id !== null)
+		.map((e) => {
+			const day = e.startedAt ? ` on ${e.startedAt.slice(0, 10)}` : '';
+			const notes = e.notes ? ` - ${e.notes}` : '';
+
+			return { name: `${e.timeSpent ?? 0} min${day}${notes}`, value: String(e.id) };
+		});
+}
+
 /** Which field of the view scope fields holds the target identifier, per scope. */
 const SCOPE_TARGET_PARAM: Record<string, string> = {
 	space: 'scopeSpaceId',
@@ -587,6 +672,68 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 				typeof importJobOptions
 			>[0],
 		);
+	},
+	async getAutomations(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const scope = optionalParam(this, 'scope');
+		const target = optionalParam(this, scope);
+		if (!workspace || !['space', 'folder', 'list'].includes(scope) || !target) {
+			return [];
+		}
+
+		return automationOptions(
+			(await dutifyRequest.call(this, automationsSpec(scope, target), workspace)) as Parameters<
+				typeof automationOptions
+			>[0],
+		);
+	},
+	async getSavedFilters(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const list = optionalParam(this, 'list');
+		if (!workspace || !list) {
+			return [];
+		}
+
+		return savedFilterOptions(
+			(await dutifyRequest.call(this, savedFiltersSpec(list), workspace)) as Parameters<
+				typeof savedFilterOptions
+			>[0],
+		);
+	},
+	async getNotifications(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return notificationOptions(
+			(await dutifyRequest.call(this, notificationsSpec(workspace), workspace)) as Parameters<
+				typeof notificationOptions
+			>[0],
+		);
+	},
+	async getTimeEntries(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const task = optionalParam(this, 'task');
+		if (!workspace || !task) {
+			return [];
+		}
+		try {
+			const taskId = await resolveTaskId(
+				async (spec) => await dutifyRequest.call(this, spec, workspace),
+				task,
+				workspace,
+			);
+
+			return timeEntryOptions(
+				(await dutifyRequest.call(this, timeEntriesSpec(taskId), workspace)) as Parameters<
+					typeof timeEntryOptions
+				>[0],
+			);
+		} catch {
+			// A half-typed or unknown task key just shows no entries.
+			return [];
+		}
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');
