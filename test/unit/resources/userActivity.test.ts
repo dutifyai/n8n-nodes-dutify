@@ -54,8 +54,10 @@ describe('registration', () => {
 		expect(activityLog.operations.map((o) => o.operation)).toEqual(['list']);
 	});
 
-	it('user is account-level; notification and activity log are workspace-scoped', () => {
-		expect(user.workspaceScoped).toBe(false);
+	it('user, notification and activity log are all workspace-scoped', () => {
+		// The user settings are account-level, but PM refuses a personal key on them without
+		// X-Dutify-Workspace ("Select a workspace with X-Dutify-Workspace", seen live).
+		expect(user.workspaceScoped).toBe(true);
 		expect(notification.workspaceScoped).toBe(true);
 		expect(activityLog.workspaceScoped).toBe(true);
 	});
@@ -151,17 +153,17 @@ describe('user', () => {
 		});
 	});
 
-	it('getAvatarUrl: GET workspaces/{ws}/users/{uuid}/avatar/url, the URL returned as { url }', async () => {
+	it('getAvatarUrl: GET workspaces/{selected ws}/users/{uuid}/avatar/url, the URL returned as { url }', async () => {
 		const ctx = fakeContext(['https://cdn.example/a.png?sig=1']);
-		const out = await run(user, 'getAvatarUrl', ctx, { workspace: 'ws-1', user: 'u-1' });
+		const out = await run(user, 'getAvatarUrl', ctx, { user: 'u-1' });
 		expect(ctx.calls).toEqual([
 			{ method: 'GET', path: '/mp/api/v1/workspaces/ws-1/users/u-1/avatar/url' },
 		]);
 		expect(out).toEqual([{ json: { url: 'https://cdn.example/a.png?sig=1' } }]);
 	});
 
-	it('getAvatarUrl: the workspace and the member are chosen from pickers', () => {
-		expect(fieldOf(user, 'getAvatarUrl', 'workspace')?.type).toBe('resourceLocator');
+	it('getAvatarUrl: the member is chosen from a picker; the workspace is the shared selector', () => {
+		expect(fieldOf(user, 'getAvatarUrl', 'workspace')).toBeUndefined();
 		expect(loaderOf(user, 'getAvatarUrl', 'user')).toBe('getMemberIds');
 	});
 });

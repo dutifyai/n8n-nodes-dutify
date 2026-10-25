@@ -1,6 +1,5 @@
 import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
-import { workspaceField } from '../../../shared/fields';
 import { collection, idPicker, oneItem } from '../../../shared/fieldHelpers';
 import { resolveTaskId } from '../../../shared/taskRefs';
 import { encodePath } from '../../../shared/transport';
@@ -86,9 +85,6 @@ const notificationSettingFields: INodeProperties[] = NOTIFICATION_GROUPS.flatMap
 		}),
 	),
 );
-
-/** Workspace choice for operations of an account-level resource that still need one. */
-const ownWorkspaceField = (): INodeProperties => ({ ...workspaceField });
 
 const userOperations: OperationDef[] = [
 	{
@@ -184,11 +180,11 @@ const userOperations: OperationDef[] = [
 		name: 'Get Avatar URL',
 		action: 'Get the avatar URL of a workspace member',
 		description: 'Get a temporary link to the avatar image of a workspace member',
-		fields: [ownWorkspaceField(), idPicker('Member Name or ID', 'user', 'getMemberIds', undefined)],
+		fields: [idPicker('Member Name or ID', 'user', 'getMemberIds', undefined)],
 		run: async (ctx, p) => {
 			const url = await ctx.request({
 				method: 'GET',
-				path: encodePath`/mp/api/v1/workspaces/${p.get<string>('workspace')}/users/${p.get<string>('user')}/avatar/url`,
+				path: encodePath`/mp/api/v1/workspaces/${p.workspace}/users/${p.get<string>('user')}/avatar/url`,
 			});
 
 			return [{ json: { url: url as string } }];
@@ -196,11 +192,15 @@ const userOperations: OperationDef[] = [
 	},
 ];
 
-/** The current user, their settings and workspace avatars (PM "Users"). */
+/**
+ * The current user, their settings and workspace avatars (PM "Users"). The settings are
+ * account-level, but PM refuses a personal key on them without X-Dutify-Workspace, so the
+ * resource carries the workspace selector like the others.
+ */
 export const user: ResourceDef = {
 	value: 'user',
 	name: 'User',
-	workspaceScoped: false,
+	workspaceScoped: true,
 	operations: userOperations,
 };
 
