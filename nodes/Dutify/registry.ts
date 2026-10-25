@@ -20,6 +20,7 @@ import { savedFilter, taskSharing, timeEntry } from './resources/taskExtras';
 import { activityLog, notification, user } from './resources/userActivity';
 import { pmWebhook } from './resources/pmWebhook';
 import { call, lens, recording } from './resources/hub';
+import { meetingWebhook } from './resources/meetingWebhook';
 import { bug, featureRequest } from './resources/roadmarq';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
@@ -59,6 +60,7 @@ export const resources: ResourceDef[] = [
 	call,
 	recording,
 	lens,
+	meetingWebhook,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

@@ -4,6 +4,8 @@ import {
 	hubCallOptions,
 	hubCallsSpec,
 	hubRecordingOptions,
+	hubWebhookOptions,
+	hubWebhooksSpec,
 	loadOptions,
 } from '../../nodes/Dutify/loaders';
 
@@ -65,7 +67,8 @@ describe('Hub call and recording pickers', () => {
 	it('return no options, without calling Hub, until a workspace is chosen', async () => {
 		const requests: unknown[] = [];
 		const ctx = {
-			getNodeParameter: (name: string, fallback?: unknown) => (name === 'workspace' ? '' : fallback),
+			getNodeParameter: (name: string, fallback?: unknown) =>
+				name === 'workspace' ? '' : fallback,
 			getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
 			getNode: () => ({ name: 'Dutify', type: 'n8n-nodes-dutify.dutify', typeVersion: 1 }),
 			helpers: {
@@ -79,5 +82,59 @@ describe('Hub call and recording pickers', () => {
 		expect(await loadOptions.getHubCalls.call(ctx)).toEqual([]);
 		expect(await loadOptions.getHubRecordings.call(ctx)).toEqual([]);
 		expect(requests).toEqual([]);
+	});
+});
+
+describe('Hub meeting webhook picker', () => {
+	it('lists the webhooks the key may see (Hub filters them to the workspace header)', () => {
+		expect(hubWebhooksSpec()).toEqual({ method: 'GET', path: '/api/user/webhooks' });
+	});
+
+	it('options are valued by the integer webhook ID; the URL disambiguates, a paused one is marked', () => {
+		expect(
+			hubWebhookOptions([
+				{ id: 7, name: 'CRM', url: 'https://a.test/hook', enabled: true },
+				{ id: 8, url: 'https://b.test/hook', enabled: false },
+				{ id: 9, name: '', url: 'https://c.test/hook' },
+				{ name: 'no id', url: 'https://d.test' },
+			]),
+		).toEqual([
+			{ name: 'CRM (https://a.test/hook)', value: '7' },
+			{ name: 'https://b.test/hook (paused)', value: '8' },
+			{ name: 'https://c.test/hook', value: '9' },
+		]);
+		expect(hubWebhookOptions(null)).toEqual([]);
+	});
+
+	it('is wired as a loadOptions method that answers [] without a workspace or on a 403', async () => {
+		expect(typeof loadOptions.getMeetingWebhooks).toBe('function');
+		const ctxWith = (workspace: string, answer: () => Promise<unknown>) =>
+			({
+				getNodeParameter: (name: string, fallback?: unknown) =>
+					name === 'workspace' ? workspace : fallback,
+				getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
+				getNode: () => ({ name: 'Dutify', type: 'n8n-nodes-dutify.dutify', typeVersion: 1 }),
+				helpers: { httpRequestWithAuthentication: answer },
+			}) as unknown as ILoadOptionsFunctions;
+		expect(
+			await loadOptions.getMeetingWebhooks.call(
+				ctxWith('', async () => {
+					throw new Error('must not be called');
+				}),
+			),
+		).toEqual([]);
+		const forbidden = Object.assign(new Error('Forbidden'), { httpCode: '403' });
+		expect(
+			await loadOptions.getMeetingWebhooks.call(
+				ctxWith('ws-1', async () => {
+					throw forbidden;
+				}),
+			),
+		).toEqual([]);
+		expect(
+			await loadOptions.getMeetingWebhooks.call(
+				ctxWith('ws-1', async () => [{ id: 3, url: 'https://x.test' }]),
+			),
+		).toEqual([{ name: 'https://x.test', value: '3' }]);
 	});
 });

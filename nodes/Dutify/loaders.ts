@@ -794,11 +794,37 @@ export function hubRecordingOptions(rows: HubCallRow[] | null | undefined): INod
 	);
 }
 
+/* ---------- Hub meeting webhooks ---------- */
+
+interface HubWebhookRow {
+	id?: number;
+	name?: string | null;
+	url?: string;
+	/** UserWebhookDTO's on/off flag. */
+	enabled?: boolean;
+}
+
+/** The caller's webhooks; Hub shows a key only those bound to the X-Dutify-Workspace workspace. */
+export function hubWebhooksSpec(): RequestSpec {
+	return { method: 'GET', path: '/api/user/webhooks' };
+}
+
+export function hubWebhookOptions(
+	rows: HubWebhookRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((w) => w.id !== undefined && w.id !== null)
+		.map((w) => {
+			const label = w.name && w.url ? `${w.name} (${w.url})` : w.name || w.url || `Webhook ${w.id}`;
+			const paused = w.enabled === false;
+
+			return { name: paused ? `${label} (paused)` : label, value: String(w.id) };
+		});
+}
+
 /** A key without the scope (403) just gets no suggestions; the field still takes an expression. */
 async function orNoneWhenForbidden<T>(load: () => Promise<T[]>): Promise<T[]> {
-	return await load().catch((error: unknown) =>
-		isForbidden(error) ? [] : Promise.reject(error),
-	);
+	return await load().catch((error: unknown) => (isForbidden(error) ? [] : Promise.reject(error)));
 }
 
 /* ---------- n8n wiring ---------- */
@@ -1219,6 +1245,20 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 			hubRecordingOptions(
 				(await dutifyRequest.call(this, hubCallsSpec(), workspace)) as Parameters<
 					typeof hubRecordingOptions
+				>[0],
+			),
+		);
+	},
+	async getMeetingWebhooks(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return await orNoneWhenForbidden(async () =>
+			hubWebhookOptions(
+				(await dutifyRequest.call(this, hubWebhooksSpec(), workspace)) as Parameters<
+					typeof hubWebhookOptions
 				>[0],
 			),
 		);
