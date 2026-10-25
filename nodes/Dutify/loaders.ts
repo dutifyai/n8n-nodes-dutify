@@ -198,6 +198,47 @@ export function wikiSpaceOptions(
 	return (spaces ?? []).map((s) => ({ name: s.name, value: s.key }));
 }
 
+/** Every page of a wiki space (the lite endpoint only lists one level at a time). */
+export function wikiPagesSpec(workspace: string, space: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/api/wiki/v1/workspaces/${workspace}/wiki/spaces/${space}/pages`,
+	};
+}
+
+interface WikiPageRow {
+	id?: string;
+	slug?: string;
+	title?: string;
+	type?: string;
+	parentId?: string | null;
+}
+
+/** Value is the slug (lite endpoints address pages by slug); the label shows the ancestry. */
+export function wikiPageOptions(rows: WikiPageRow[] | null | undefined): INodePropertyOptions[] {
+	const byId = new Map((rows ?? []).filter((r) => r.id).map((r) => [r.id as string, r]));
+	const titleOf = (row: WikiPageRow) => row.title ?? (row.slug as string);
+	const path = (row: WikiPageRow): string => {
+		const parent = row.parentId ? byId.get(row.parentId) : undefined;
+
+		return parent && parent !== row ? `${path(parent)} / ${titleOf(row)}` : titleOf(row);
+	};
+
+	return (rows ?? [])
+		.filter((r) => r.slug)
+		.map((r) => ({
+			name: r.type === 'folder' ? `${path(r)} (folder)` : path(r),
+			value: r.slug as string,
+		}));
+}
+
+/** For optional parent and sibling fields: the same pages, plus a blank "top level" choice. */
+export function wikiParentPageOptions(
+	rows: WikiPageRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return [{ name: '- Top Level -', value: '' }, ...wikiPageOptions(rows)];
+}
+
 export function boardsSpec(workspace: string): RequestSpec {
 	return {
 		method: 'GET',
@@ -581,6 +622,18 @@ async function loadSprintGroups(ctx: ILoadOptionsFunctions): Promise<SprintGroup
 	return (await dutifyRequest.call(ctx, sprintGroupsSpec(space), workspace)) as SprintGroupRow[];
 }
 
+async function loadWikiPages(ctx: ILoadOptionsFunctions) {
+	const workspace = selectedWorkspace(ctx);
+	const space = optionalParam(ctx, 'space');
+	if (!workspace || !space) {
+		return [];
+	}
+
+	return (await dutifyRequest.call(ctx, wikiPagesSpec(workspace, space), workspace)) as Parameters<
+		typeof wikiPageOptions
+	>[0];
+}
+
 export const listSearch: NonNullable<NonNullable<INodeType['methods']>['listSearch']> = {
 	async searchWorkspaces(
 		this: ILoadOptionsFunctions,
@@ -850,6 +903,12 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 		}>;
 
 		return wikiSpaceOptions(spaces);
+	},
+	async getWikiPages(this: ILoadOptionsFunctions) {
+		return wikiPageOptions(await loadWikiPages(this));
+	},
+	async getWikiParentPages(this: ILoadOptionsFunctions) {
+		return wikiParentPageOptions(await loadWikiPages(this));
 	},
 	async getBoards(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);

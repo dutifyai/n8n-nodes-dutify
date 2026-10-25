@@ -11,6 +11,7 @@ import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
 import { importJob, invitation, member, team } from './resources/admin';
 import { automation } from './resources/automation';
+import { codexumPage, codexumSpace } from './resources/codexum';
 import { customField, folder, list, space, tag } from './resources/structure';
 import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
@@ -47,6 +48,8 @@ export const resources: ResourceDef[] = [
 	notification,
 	activityLog,
 	pmWebhook,
+	codexumPage,
+	codexumSpace,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */
