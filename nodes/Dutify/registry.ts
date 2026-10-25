@@ -16,6 +16,7 @@ import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
 import { savedFilter, taskSharing, timeEntry } from './resources/taskExtras';
 import { activityLog, notification, user } from './resources/userActivity';
+import { pmWebhook } from './resources/pmWebhook';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
@@ -45,6 +46,7 @@ export const resources: ResourceDef[] = [
 	savedFilter,
 	notification,
 	activityLog,
+	pmWebhook,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

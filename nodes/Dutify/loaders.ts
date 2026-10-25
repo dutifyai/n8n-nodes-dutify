@@ -6,6 +6,7 @@ import type {
 	INodePropertyOptions,
 	INodeType,
 } from 'n8n-workflow';
+import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 import { resolveTaskId } from '../../shared/taskRefs';
 import { dutifyRequest, encodePath } from '../../shared/transport';
 import type { RequestSpec } from '../../shared/types';
@@ -493,6 +494,59 @@ const SCOPE_TARGET_PARAM: Record<string, string> = {
 	list: 'scopeListId',
 };
 
+/* ---------- PM webhooks ---------- */
+
+/** The catalog has no endpoint listing the event types, so the picker serves the shared static list. */
+export function pmEventTypeOptions(): INodePropertyOptions[] {
+	return PM_EVENT_OPTIONS;
+}
+
+export function pmWebhooksSpec(workspace: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/workspaces/${workspace}/webhooks` };
+}
+
+export function pmWebhookOptions(
+	rows:
+		| Array<{ identifier?: string; name?: string; url?: string; active?: boolean }>
+		| null
+		| undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((w) => w.identifier)
+		.map((w) => {
+			const label =
+				w.name && w.url ? `${w.name} (${w.url})` : (w.name ?? w.url ?? (w.identifier as string));
+
+			return {
+				name: w.active === false ? `${label} (paused)` : label,
+				value: w.identifier as string,
+			};
+		});
+}
+
+export function pmWebhookDeliveriesSpec(workspace: string, webhook: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/workspaces/${workspace}/webhooks/${webhook}/deliveries`,
+		qs: { size: PICKER_PAGE_SIZE },
+	};
+}
+
+export function pmWebhookDeliveryOptions(
+	rows:
+		| Array<{ identifier?: string; eventType?: string; status?: string; createdAt?: string }>
+		| null
+		| undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((d) => d.identifier)
+		.map((d) => {
+			const label = [d.eventType, d.status, d.createdAt].filter(Boolean).join(' - ');
+
+			return { name: label || (d.identifier as string), value: d.identifier as string };
+		});
+}
+
 /* ---------- n8n wiring ---------- */
 
 function selectedWorkspace(ctx: ILoadOptionsFunctions): string {
@@ -734,6 +788,36 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 			// A half-typed or unknown task key just shows no entries.
 			return [];
 		}
+	},
+	async getPmEventTypes(this: ILoadOptionsFunctions) {
+		return pmEventTypeOptions();
+	},
+	async getPmWebhooks(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return pmWebhookOptions(
+			(await dutifyRequest.call(this, pmWebhooksSpec(workspace), workspace)) as Parameters<
+				typeof pmWebhookOptions
+			>[0],
+		);
+	},
+	async getPmWebhookDeliveries(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const webhook = optionalParam(this, 'webhook');
+		if (!workspace || !webhook) {
+			return [];
+		}
+
+		return pmWebhookDeliveryOptions(
+			(await dutifyRequest.call(
+				this,
+				pmWebhookDeliveriesSpec(workspace, webhook),
+				workspace,
+			)) as Parameters<typeof pmWebhookDeliveryOptions>[0],
+		);
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');
