@@ -11,17 +11,27 @@ import type {
 } from 'n8n-workflow';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 import { workspaceField } from '../../shared/fields';
-import { dutifyRequest, toNodeError } from '../../shared/transport';
+import { dutifyRequest } from '../../shared/transport';
 import type { ParamReader, RequestSpec } from '../../shared/types';
 import { listSearch, loadOptions } from '../Dutify/loaders';
 import { scopeBody, scopeFields } from '../Dutify/resources/pmWebhook';
 import { sources, verifySignature } from './sources';
 import type { WebhookSource } from './sources';
 
-/** Static data of the node: the registered webhook and the secret that signs its deliveries. */
+/**
+ * Static data of the node: the registered webhook, the secret that signs its deliveries and the
+ * workspace it lives in (so a later change of the workspace parameter cannot orphan it).
+ */
 interface StoredWebhook extends IDataObject {
 	webhookId?: string;
 	secret?: string;
+	workspace?: string;
+}
+
+function forget(stored: StoredWebhook): void {
+	delete stored.webhookId;
+	delete stored.secret;
+	delete stored.workspace;
 }
 
 const forPm = (field: INodeProperties): INodeProperties => ({
@@ -68,20 +78,27 @@ function paramReader(ctx: IHookFunctions, workspace: string): ParamReader {
 const isNotFound = (error: unknown) =>
 	String((error as { httpCode?: unknown } | null)?.httpCode) === '404';
 
-/** Deletes a webhook; one that is already gone counts as deleted. */
+/**
+ * Deletes a webhook; one that is already gone counts as deleted. Any other failure is the
+ * NodeApiError `dutifyRequest` already made, passed on as it is.
+ */
 async function removeWebhook(
 	ctx: IHookFunctions,
 	source: WebhookSource,
 	id: string,
 	workspace: string,
 ): Promise<void> {
-	try {
-		await dutifyRequest.call(ctx, source.remove(id, { workspace }), workspace);
-	} catch (error) {
-		if (!isNotFound(error)) {
-			throw toNodeError(ctx.getNode(), error);
-		}
-	}
+	await dutifyRequest
+		.call(ctx, source.remove(id, { workspace }), workspace)
+		.catch(async (error: unknown) => (isNotFound(error) ? undefined : await Promise.reject(error)));
+}
+
+async function listWebhooks(
+	ctx: IHookFunctions,
+	source: WebhookSource,
+	workspace: string,
+): Promise<unknown> {
+	return await dutifyRequest.call(ctx, source.list({ workspace }), workspace);
 }
 
 /** The source settings of the create request. A task key scope is resolved to its `tsk_` ID. */
@@ -167,14 +184,20 @@ export class DutifyTrigger implements INodeType {
 				}
 				const source = sourceOf(this);
 				const workspace = workspaceOf(this);
-				const listed = await dutifyRequest.call(this, source.list({ workspace }), workspace);
+				// Registered for another workspace: create re-registers it for the current one.
+				if (stored.workspace && stored.workspace !== workspace) {
+					return false;
+				}
+				const listed = await listWebhooks(this, source, workspace);
 
 				return source.findExisting(listed, webhookUrlOf(this), stored.webhookId) !== null;
 			},
 
 			/**
-			 * Registers this URL with a fresh secret. A leftover webhook at this URL (its secret is
-			 * lost) and the previously stored one are removed first, so no duplicate keeps delivering.
+			 * Registers this URL with a fresh secret. Webhooks already at this URL are removed first
+			 * (a leftover whose secret is lost, or the stored one), so no duplicate keeps delivering.
+			 * Webhooks at any other URL are left alone: n8n's test and production URLs differ, and
+			 * listening for a test event must not delete the production webhook.
 			 */
 			async create(this: IHookFunctions): Promise<boolean> {
 				const stored = this.getWorkflowStaticData('node') as StoredWebhook;
@@ -183,20 +206,26 @@ export class DutifyTrigger implements INodeType {
 				const url = webhookUrlOf(this);
 				const cfg = await sourceConfig(this, workspace);
 
-				const listed = await dutifyRequest.call(this, source.list({ workspace }), workspace);
-				const stale = new Set<string>();
+				const listed = await listWebhooks(this, source, workspace);
+				const stale: Array<{ id: string; workspace: string }> = [];
 				const leftover = source.findExisting(listed, url);
 				if (leftover) {
-					stale.add(leftover);
+					stale.push({ id: leftover, workspace });
 				}
-				if (stored.webhookId) {
-					stale.add(stored.webhookId);
+				if (stored.webhookId && stored.webhookId !== leftover) {
+					const storedWorkspace = stored.workspace || workspace;
+					const storedListed =
+						storedWorkspace === workspace
+							? listed
+							: await listWebhooks(this, source, storedWorkspace);
+					if (source.findExisting(storedListed, url, stored.webhookId)) {
+						stale.push({ id: stored.webhookId, workspace: storedWorkspace });
+					}
 				}
-				for (const id of stale) {
-					await removeWebhook(this, source, id, workspace);
+				for (const hook of stale) {
+					await removeWebhook(this, source, hook.id, hook.workspace);
 				}
-				delete stored.webhookId;
-				delete stored.secret;
+				forget(stored);
 
 				const secret = randomBytes(32).toString('hex');
 				const created = await dutifyRequest.call(
@@ -207,17 +236,19 @@ export class DutifyTrigger implements INodeType {
 				const { id } = source.parseCreated(created, secret);
 				stored.webhookId = id;
 				stored.secret = secret;
+				stored.workspace = workspace;
 
 				return true;
 			},
 
+			/** Deletes the stored webhook in the workspace it was registered in. */
 			async delete(this: IHookFunctions): Promise<boolean> {
 				const stored = this.getWorkflowStaticData('node') as StoredWebhook;
 				if (!stored.webhookId) {
 					return true;
 				}
 				const source = sourceOf(this);
-				const workspace = workspaceOf(this);
+				const workspace = stored.workspace || workspaceOf(this);
 				try {
 					await removeWebhook(this, source, stored.webhookId, workspace);
 				} catch (error) {
@@ -225,8 +256,7 @@ export class DutifyTrigger implements INodeType {
 
 					return false;
 				}
-				delete stored.webhookId;
-				delete stored.secret;
+				forget(stored);
 
 				return true;
 			},
@@ -239,9 +269,12 @@ export class DutifyTrigger implements INodeType {
 		const stored = this.getWorkflowStaticData('node') as StoredWebhook;
 		const header = this.getHeaderData()[source.signatureHeader];
 		const signature = Array.isArray(header) ? header[0] : header;
-		const { rawBody } = this.getRequestObject();
+		const req = this.getRequestObject();
+		if (req.rawBody === undefined) {
+			await req.readRawBody();
+		}
 
-		if (!verifySignature(stored.secret ?? '', rawBody, signature)) {
+		if (!verifySignature(stored.secret ?? '', req.rawBody, signature)) {
 			this.getResponseObject().status(401).json({ message: 'Invalid or missing signature' });
 
 			return { noWebhookResponse: true };

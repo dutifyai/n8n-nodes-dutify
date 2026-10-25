@@ -6,6 +6,7 @@ import type {
 	INodeProperties,
 	IWebhookFunctions,
 } from 'n8n-workflow';
+import { NodeApiError } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import { DutifyTrigger } from '../../nodes/DutifyTrigger/DutifyTrigger.node';
 import { sources, verifySignature } from '../../nodes/DutifyTrigger/sources';
@@ -158,6 +159,7 @@ describe('PM webhook source', () => {
 const BASE = 'https://dutify.test';
 const HOOK_URL = 'https://n8n.example.com/webhook/7f3a/webhook';
 const LIST_PATH = `${BASE}/mp/api/v1/workspaces/ws-1/webhooks`;
+const OLD_WS_PATH = `${BASE}/mp/api/v1/workspaces/ws-old/webhooks`;
 
 interface Recorded {
 	method: string;
@@ -303,6 +305,16 @@ describe('checkExists', () => {
 		expect(await hooks.checkExists.call(ctx)).toBe(false);
 	});
 
+	it('is false, without asking Dutify, when the workspace parameter changed since registration', async () => {
+		const { ctx, calls } = hookContext({
+			params: { workspace: 'ws-new' },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-old' },
+			responses: [],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
+		expect(calls).toEqual([]);
+	});
+
 	it('surfaces a failing list (e.g. 403) instead of hiding it', async () => {
 		const { ctx } = hookContext({
 			staticData: { webhookId: 'whk_1', secret: 'sek' },
@@ -329,7 +341,7 @@ describe('create', () => {
 		expect(body.eventTypes).toEqual(['task-created', 'task-status-changed']);
 		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
 		expect(body).not.toHaveProperty('scopeType');
-		expect(staticData).toEqual({ webhookId: 'whk_new', secret: body.secret });
+		expect(staticData).toEqual({ webhookId: 'whk_new', secret: body.secret, workspace: 'ws-1' });
 	});
 
 	it('generates a fresh secret every time', async () => {
@@ -390,14 +402,23 @@ describe('create', () => {
 		expect(staticData.webhookId).toBe('whk_new');
 	});
 
-	it('removes the previously stored webhook that moved to another URL', async () => {
+	it('leaves the stored webhook alone when it is at another URL (test mode must not delete the production hook)', async () => {
 		const { ctx, calls } = hookContext({
-			staticData: { webhookId: 'whk_old', secret: 'old' },
-			responses: [
-				[{ identifier: 'whk_old', url: 'https://old-host.example.com/webhook/7f3a/webhook' }],
-				undefined,
-				{ identifier: 'whk_new' },
-			],
+			webhookUrl: 'https://n8n.example.com/webhook-test/7f3a/webhook',
+			staticData: { webhookId: 'whk_prod', secret: 'prod', workspace: 'ws-1' },
+			responses: [[{ identifier: 'whk_prod', url: HOOK_URL }], { identifier: 'whk_test' }],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`POST ${LIST_PATH}`,
+		]);
+	});
+
+	it('removes the stored webhook when it is at this URL, before registering again', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-1' },
+			responses: [[{ identifier: 'whk_old', url: HOOK_URL }], undefined, { identifier: 'whk_new' }],
 		});
 		await hooks.create.call(ctx);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
@@ -405,6 +426,24 @@ describe('create', () => {
 			`DELETE ${LIST_PATH}/whk_old`,
 			`POST ${LIST_PATH}`,
 		]);
+		expect(staticData.webhookId).toBe('whk_new');
+		expect(staticData.secret).not.toBe('old');
+	});
+
+	it('removes the stored webhook at this URL in the workspace it was registered in', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: { workspace: 'ws-new' },
+			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-old' },
+			responses: [[], [{ identifier: 'whk_old', url: HOOK_URL }], undefined, { identifier: 'whk_new' }],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${BASE}/mp/api/v1/workspaces/ws-new/webhooks`,
+			`GET ${OLD_WS_PATH}`,
+			`DELETE ${OLD_WS_PATH}/whk_old`,
+			`POST ${BASE}/mp/api/v1/workspaces/ws-new/webhooks`,
+		]);
+		expect(staticData.workspace).toBe('ws-new');
 	});
 
 	it('leaves webhooks of other URLs alone', async () => {
@@ -455,6 +494,28 @@ describe('delete', () => {
 		expect(staticData).toEqual({ webhookId: 'whk_1', secret: 'sek' });
 	});
 
+	it('deletes in the stored workspace even after the workspace parameter changed', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: { workspace: 'ws-new' },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-old' },
+			responses: [undefined],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE ${OLD_WS_PATH}/whk_1`]);
+		expect((calls[0].headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-old');
+		expect(staticData).toEqual({});
+	});
+
+	it('a failed stale removal in create surfaces as the NodeApiError with Dutify message and status', async () => {
+		const { ctx } = hookContext({
+			responses: [[{ identifier: 'whk_orphan', url: HOOK_URL }], httpError(500, 'boom')],
+		});
+		const error = await hooks.create.call(ctx).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).message).toBe('boom');
+		expect((error as NodeApiError).httpCode).toBe('500');
+	});
+
 	it('does nothing without a stored webhook', async () => {
 		const { ctx, calls } = hookContext({});
 		expect(await hooks.delete.call(ctx)).toBe(true);
@@ -469,8 +530,21 @@ function webhookContext(opts: {
 	rawBody?: Buffer;
 	headers?: Record<string, string>;
 	body?: IDataObject;
+	/** What `readRawBody()` puts on the request; omitted, it leaves rawBody as it is. */
+	readsRawBody?: Buffer;
 }) {
-	const response = { statusCode: 200, sent: undefined as unknown, ended: false };
+	const response = { statusCode: 200, sent: undefined as unknown, ended: false, rawReads: 0 };
+	const req: IDataObject & { rawBody?: Buffer } = {
+		rawBody: opts.rawBody,
+		headers: opts.headers ?? {},
+		body: opts.body,
+		async readRawBody() {
+			response.rawReads++;
+			if (opts.readsRawBody) {
+				req.rawBody = opts.readsRawBody;
+			}
+		},
+	};
 	const res = {
 		status(code: number) {
 			response.statusCode = code;
@@ -500,7 +574,7 @@ function webhookContext(opts: {
 			return name === 'source' ? 'pm' : fallback;
 		},
 		getWorkflowStaticData: () => opts.staticData ?? {},
-		getRequestObject: () => ({ rawBody: opts.rawBody, headers: opts.headers ?? {}, body: opts.body }),
+		getRequestObject: () => req,
 		getResponseObject: () => res,
 		getHeaderData: () => opts.headers ?? {},
 		getBodyData: () => opts.body ?? {},
@@ -537,6 +611,42 @@ describe('webhook()', () => {
 		const result = await trigger.webhook.call(ctx);
 		expect(result.workflowData).toEqual([[{ json: body }]]);
 		expect(response.statusCode).toBe(200);
+	});
+
+	it('reads the raw body when n8n has not buffered it yet, then verifies it', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: undefined,
+			readsRawBody: raw,
+			headers: goodHeaders,
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(response.rawReads).toBe(1);
+		expect(result.workflowData).toEqual([[{ json: body }]]);
+	});
+
+	it('does not re-read a raw body that is already there', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: raw,
+			headers: goodHeaders,
+			body,
+		});
+		await trigger.webhook.call(ctx);
+		expect(response.rawReads).toBe(0);
+	});
+
+	it('answers 401 when the raw body stays missing, even with a signature', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: undefined,
+			headers: goodHeaders,
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toBeUndefined();
+		expect(response.statusCode).toBe(401);
 	});
 
 	it('with a wrong signature answers 401 and does not start the workflow', async () => {
