@@ -27,12 +27,23 @@ interface StoredWebhook extends IDataObject {
 	webhookId?: string;
 	secret?: string;
 	workspace?: string;
+	/** The trigger source that made it, so a later change of Source cannot orphan it. */
+	source?: string;
 }
 
 function forget(stored: StoredWebhook): void {
 	delete stored.webhookId;
 	delete stored.secret;
 	delete stored.workspace;
+	delete stored.source;
+}
+
+const sourceNameOf = (ctx: IHookFunctions | IWebhookFunctions) =>
+	String(ctx.getNodeParameter('source', 'pm'));
+
+/** The source that made the stored webhook; the current one for data stored before it was kept. */
+function storedSourceOf(ctx: IHookFunctions, stored: StoredWebhook): WebhookSource {
+	return (stored.source && sources[stored.source]) || sourceOf(ctx);
 }
 
 const forSources =
@@ -46,7 +57,7 @@ const forPm = forSources('pm');
 const forMeeting = forSources('meeting');
 
 function sourceOf(ctx: IHookFunctions | IWebhookFunctions): WebhookSource {
-	const name = String(ctx.getNodeParameter('source', 'pm'));
+	const name = sourceNameOf(ctx);
 	const source = sources[name];
 	if (!source) {
 		throw new ApplicationError(`"${name}" is not a Dutify Trigger source`);
@@ -232,8 +243,11 @@ export class DutifyTrigger implements INodeType {
 				}
 				const source = sourceOf(this);
 				const workspace = workspaceOf(this);
-				// Registered for another workspace: create re-registers it for the current one.
-				if (stored.workspace && stored.workspace !== workspace) {
+				// Registered for another workspace or by another source: create re-registers it.
+				if (
+					(stored.workspace && stored.workspace !== workspace) ||
+					(stored.source && stored.source !== sourceNameOf(this))
+				) {
 					return false;
 				}
 				const listed = await listWebhooks(this, source, workspace);
@@ -261,21 +275,25 @@ export class DutifyTrigger implements INodeType {
 
 				const atUrl = source.listAtUrl(await listWebhooks(this, source, workspace), url);
 				const reuse = pickReusable(atUrl);
-				const stale: Array<{ id: string; workspace: string }> = atUrl
+				const stale: Array<{ id: string; workspace: string; source: WebhookSource }> = atUrl
 					.filter((hook) => hook !== reuse && hook.active)
-					.map((hook) => ({ id: hook.id, workspace }));
+					.map((hook) => ({ id: hook.id, workspace, source }));
 				const storedWorkspace = stored.workspace || workspace;
-				if (stored.webhookId && storedWorkspace !== workspace) {
+				const storedSource = storedSourceOf(this, stored);
+				if (stored.webhookId && storedSource !== source) {
+					// Made by the source this node used before Source was changed.
+					stale.push({ id: stored.webhookId, workspace: storedWorkspace, source: storedSource });
+				} else if (stored.webhookId && storedWorkspace !== workspace) {
 					const storedAtUrl = source.listAtUrl(
 						await listWebhooks(this, source, storedWorkspace),
 						url,
 					);
 					if (storedAtUrl.some((hook) => hook.id === stored.webhookId)) {
-						stale.push({ id: stored.webhookId, workspace: storedWorkspace });
+						stale.push({ id: stored.webhookId, workspace: storedWorkspace, source });
 					}
 				}
 				for (const hook of stale) {
-					await removeWebhook(this, source, hook.id, hook.workspace);
+					await removeWebhook(this, hook.source, hook.id, hook.workspace);
 				}
 				forget(stored);
 
@@ -295,6 +313,7 @@ export class DutifyTrigger implements INodeType {
 				stored.webhookId = id;
 				stored.secret = secret;
 				stored.workspace = workspace;
+				stored.source = sourceNameOf(this);
 
 				return true;
 			},
@@ -305,7 +324,7 @@ export class DutifyTrigger implements INodeType {
 				if (!stored.webhookId) {
 					return true;
 				}
-				const source = sourceOf(this);
+				const source = storedSourceOf(this, stored);
 				const workspace = stored.workspace || workspaceOf(this);
 				try {
 					await removeWebhook(this, source, stored.webhookId, workspace);

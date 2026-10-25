@@ -521,7 +521,12 @@ describe('create', () => {
 		expect(body.eventTypes).toEqual(['task-created', 'task-status-changed']);
 		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
 		expect(body).not.toHaveProperty('scopeType');
-		expect(staticData).toEqual({ webhookId: 'whk_new', secret: body.secret, workspace: 'ws-1' });
+		expect(staticData).toEqual({
+			webhookId: 'whk_new',
+			secret: body.secret,
+			workspace: 'ws-1',
+			source: 'pm',
+		});
 	});
 
 	it('generates a fresh secret every time', async () => {
@@ -585,7 +590,12 @@ describe('create', () => {
 		});
 		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
 		expect((calls[1].headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
-		expect(staticData).toEqual({ webhookId: 'whk_orphan', secret: body.secret, workspace: 'ws-1' });
+		expect(staticData).toEqual({
+			webhookId: 'whk_orphan',
+			secret: body.secret,
+			workspace: 'ws-1',
+			source: 'pm',
+		});
 	});
 
 	it('resumes a paused webhook at this URL (PUT active:true) instead of adding one more row to the quota', async () => {
@@ -818,6 +828,7 @@ describe('create', () => {
 			webhookId: 'whk_new',
 			secret: (calls[4].body as IDataObject).secret,
 			workspace: 'ws-new',
+			source: 'pm',
 		});
 	});
 
@@ -958,7 +969,12 @@ describe('meeting source (Hub "meeting processed")', () => {
 		for (const call of calls) {
 			expect((call.headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
 		}
-		expect(staticData).toEqual({ webhookId: '42', secret: body.secret, workspace: 'ws-1' });
+		expect(staticData).toEqual({
+			webhookId: '42',
+			secret: body.secret,
+			workspace: 'ws-1',
+			source: 'meeting',
+		});
 	});
 
 	it('create needs no PM events', async () => {
@@ -992,7 +1008,12 @@ describe('meeting source (Hub "meeting processed")', () => {
 			sections: ['summary', 'actionItems'],
 			enabled: true,
 		});
-		expect(staticData).toEqual({ webhookId: '9', secret: body.secret, workspace: 'ws-1' });
+		expect(staticData).toEqual({
+			webhookId: '9',
+			secret: body.secret,
+			workspace: 'ws-1',
+			source: 'meeting',
+		});
 	});
 
 	it('create keeps one webhook per URL: an active one is reused, a second active one removed', async () => {
@@ -1381,5 +1402,71 @@ describe('package registration', () => {
 	it('registers the trigger build output in n8n.nodes', () => {
 		expect(packageJson.n8n.nodes).toContain('dist/nodes/DutifyTrigger/DutifyTrigger.node.js');
 		expect(packageJson.n8n.nodes).toContain('dist/nodes/Dutify/Dutify.node.js');
+	});
+});
+
+/* ---------- the source that made the webhook is remembered ---------- */
+
+describe('static data records the source of the webhook', () => {
+	const PM_HOOKS = `${BASE}/mp/api/v1/workspaces/ws-1/webhooks`;
+	const HUB_HOOKS = `${BASE}/api/user/webhooks`;
+
+	it('create stores the source next to the webhook', async () => {
+		const meeting = hookContext({
+			params: { source: 'meeting', sections: ['summary'] },
+			responses: [[], { id: 42 }],
+		});
+		await hooks.create.call(meeting.ctx);
+		expect(meeting.staticData.source).toBe('meeting');
+
+		const pm = hookContext({ responses: [[], { identifier: 'whk_new' }] });
+		await hooks.create.call(pm.ctx);
+		expect(pm.staticData.source).toBe('pm');
+	});
+
+	it('delete removes the webhook through the source that made it, even after Source changed', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: { source: 'meeting', sections: ['summary'] },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1', source: 'pm' },
+			responses: [undefined],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE ${PM_HOOKS}/whk_1`]);
+		expect(staticData).toEqual({});
+	});
+
+	it('delete of static data written before the source was stored uses the current source', async () => {
+		const { ctx, calls } = hookContext({
+			params: { source: 'meeting', sections: ['summary'] },
+			staticData: { webhookId: '42', secret: 'sek', workspace: 'ws-1' },
+			responses: [undefined],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`DELETE ${HUB_HOOKS}/42`]);
+	});
+
+	it('checkExists is false when the stored webhook belongs to another source', async () => {
+		const { ctx, calls } = hookContext({
+			params: { source: 'meeting', sections: ['summary'] },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1', source: 'pm' },
+			responses: [],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
+		expect(calls).toEqual([]);
+	});
+
+	it("create after a Source change removes the old source's webhook, then registers the new one", async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: { source: 'meeting', sections: ['summary'] },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1', source: 'pm' },
+			responses: [[], undefined, { id: 42 }],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${HUB_HOOKS}`,
+			`DELETE ${PM_HOOKS}/whk_1`,
+			`POST ${HUB_HOOKS}`,
+		]);
+		expect(staticData).toMatchObject({ webhookId: '42', source: 'meeting' });
 	});
 });
