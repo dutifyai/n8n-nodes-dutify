@@ -46,7 +46,8 @@ export class DutifyApi implements ICredentialType {
 
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: '={{$credentials.baseUrl.replace(/\\/$/, "")}}',
+			// Same as every request: a blank Base URL means https://dutify.ai, trailing slashes trimmed.
+			baseURL: '={{($credentials.baseUrl || "https://dutify.ai").replace(/\\/+$/, "")}}',
 			url: '/mp/api/v1/api-keys/current',
 		},
 	};
