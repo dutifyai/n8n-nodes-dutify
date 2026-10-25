@@ -25,7 +25,7 @@ describe('registration', () => {
 		for (const [def, value] of [
 			[call, 'call'],
 			[recording, 'recording'],
-				[lens, 'lens'],
+			[lens, 'lens'],
 		] as const) {
 			expect(resources).toContain(def);
 			expect(def.value).toBe(value);
@@ -58,20 +58,33 @@ describe('registration', () => {
 describe('call', () => {
 	const CALLS = '/api/usercall';
 
-	it('list GETs /all, paged from zero', () => {
+	const paging = (maxPageSize: number) => ({
+		kind: 'page',
+		pageParam: 'page',
+		sizeParam: 'size',
+		zeroBased: true,
+		maxPageSize,
+	});
+
+	it('list defaults to light rows: /search with an empty query and view=lite, 100 a page', () => {
 		const op = opOf(call, 'list');
 		expect(op.list).toBe(true);
-		const spec = op.build!(reader({}));
-		expect(spec).toEqual({
+		const expected = {
+			method: 'GET',
+			path: `${CALLS}/search`,
+			qs: { query: '', view: 'lite' },
+			paginate: paging(100),
+		};
+		expect(op.build!(reader({}))).toEqual(expected);
+		expect(op.build!(reader({ additionalFields: {} }))).toEqual(expected);
+		expect(op.build!(reader({ additionalFields: { lite: true } }))).toEqual(expected);
+	});
+
+	it('list with Light Rows off GETs /all (every transcript), 20 a page to keep a page near 4 MB', () => {
+		expect(opOf(call, 'list').build!(reader({ additionalFields: { lite: false } }))).toEqual({
 			method: 'GET',
 			path: `${CALLS}/all`,
-			paginate: {
-				kind: 'page',
-				pageParam: 'page',
-				sizeParam: 'size',
-				zeroBased: true,
-				maxPageSize: 100,
-			},
+			paginate: paging(20),
 		});
 	});
 
@@ -82,28 +95,33 @@ describe('call', () => {
 		});
 	});
 
-	it('search sends the query and pages like list', () => {
+	it('search sends the query and defaults to light rows, 100 a page', () => {
 		const op = opOf(call, 'search');
 		expect(op.list).toBe(true);
 		expect(op.build!(reader({ query: 'roadmap', additionalFields: {} }))).toEqual({
 			method: 'GET',
 			path: `${CALLS}/search`,
-			qs: { query: 'roadmap' },
-			paginate: {
-				kind: 'page',
-				pageParam: 'page',
-				sizeParam: 'size',
-				zeroBased: true,
-				maxPageSize: 100,
-			},
+			qs: { query: 'roadmap', view: 'lite' },
+			paginate: paging(100),
 		});
 	});
 
-	it('search sends view=lite only when asked for', () => {
+	it('search with Light Rows off sends no view and pages 20 at a time', () => {
 		const spec = opOf(call, 'search').build!(
-			reader({ query: 'x', additionalFields: { lite: true } }),
+			reader({ query: 'x', additionalFields: { lite: false } }),
 		);
-		expect(spec.qs).toEqual({ query: 'x', view: 'lite' });
+		expect(spec.qs).toEqual({ query: 'x' });
+		expect(spec.paginate).toEqual(paging(20));
+	});
+
+	it('Light Rows is on by default in list and search', () => {
+		for (const name of ['list', 'search']) {
+			const extra = field(call, name, 'additionalFields');
+			const lite = (extra?.options as Array<{ name: string; default?: unknown }>).find(
+				(o) => o.name === 'lite',
+			);
+			expect(lite?.default).toBe(true);
+		}
 	});
 
 	it('countSearch GETs /search/count with the query', () => {
@@ -112,6 +130,13 @@ describe('call', () => {
 			path: `${CALLS}/search/count`,
 			qs: { query: 'roadmap' },
 		});
+	});
+
+	it('call and recording pickers say only the 100 most recent calls are listed', () => {
+		for (const f of [field(call, 'get', 'call'), field(recording, 'getProgress', 'recording')]) {
+			expect(f?.description).toMatch(/100 most recent/);
+			expect(f?.description).toMatch(/expression/);
+		}
 	});
 
 	it('get GETs one call by integer ID, picked from the calls', () => {
@@ -184,6 +209,38 @@ describe('recording', () => {
 		expect(out[0].binary?.data).toMatchObject({ fileName: 'recording-7-media' });
 		// Only the URL request went through the authenticated client.
 		expect(ctx.calls).toHaveLength(1);
+	});
+
+	it.each([
+		['video/mp4', 'recording-7-media.mp4', 'mp4'],
+		['audio/mp4', 'recording-7-media.m4a', 'm4a'],
+		['audio/mpeg', 'recording-7-media.mp3', 'mp3'],
+		['video/webm', 'recording-7-media.webm', 'webm'],
+		['image/jpeg', 'recording-7-media.jpg', 'jpg'],
+		['image/png', 'recording-7-media.png', 'png'],
+	])('names the download from its content type: %s', async (mimeType, fileName, extension) => {
+		const ctx = fakeContext([URL_]);
+		ctx.downloadToBinary = async (_url, name) => ({ data: 'x', mimeType, fileName: name });
+		const out = await opOf(recording, 'getMediaUrl').run!(
+			ctx,
+			reader({ recording: '7', download: true, additionalFields: {} }),
+		);
+		expect(out[0].binary?.data).toMatchObject({ fileName, fileExtension: extension, mimeType });
+	});
+
+	it('keeps the name without an extension for an unknown content type', async () => {
+		const ctx = fakeContext([URL_]);
+		ctx.downloadToBinary = async (_url, name) => ({
+			data: 'x',
+			mimeType: 'application/octet-stream',
+			fileName: name,
+		});
+		const out = await opOf(recording, 'getMediaUrl').run!(
+			ctx,
+			reader({ recording: '7', download: true, additionalFields: {} }),
+		);
+		expect(out[0].binary?.data.fileName).toBe('recording-7-media');
+		expect(out[0].binary?.data.fileExtension).toBeUndefined();
 	});
 
 	it('download: false never downloads', async () => {
@@ -271,9 +328,17 @@ describe('lens', () => {
 
 	it('POSTs the question as lastMessage and returns the answer text as an item', async () => {
 		const ctx = fakeContext(['Two decisions were made.']);
-		const out = await ask.run!(ctx, reader({ message: 'What did we decide?', additionalFields: {} }));
+		const out = await ask.run!(
+			ctx,
+			reader({ message: 'What did we decide?', additionalFields: {} }),
+		);
 		expect(ctx.calls).toEqual([
-			{ method: 'POST', path: '/api/lens/chat', timeout: 120000, body: { lastMessage: { content: 'What did we decide?' } } },
+			{
+				method: 'POST',
+				path: '/api/lens/chat',
+				timeout: 120000,
+				body: { lastMessage: { content: 'What did we decide?' } },
+			},
 		]);
 		expect(out).toEqual([{ json: { answer: 'Two decisions were made.' } }]);
 	});

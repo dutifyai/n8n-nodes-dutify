@@ -1,12 +1,6 @@
 import { ApplicationError } from 'n8n-workflow';
-import type { IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
-import {
-	collection,
-	idPicker,
-	isSet,
-	jsonField,
-	oneItem,
-} from '../../../shared/fieldHelpers';
+import type { IBinaryData, IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
+import { collection, idPicker, isSet, jsonField, oneItem } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationContext,
@@ -27,19 +21,43 @@ import type {
 
 /* ---------- calls ---------- */
 
-/** Pages are zero-based. The backend takes any size; 100 keeps a page of full call DTOs bearable. */
-const CALL_PAGING: PaginationStyle = {
+/**
+ * Pages are zero-based and the backend takes any size. Light rows (the default) are small, so a
+ * page is 100. A full row carries every transcript and AI output (Hub measured 4.2 MB for 20
+ * rows), so a full-view page is 20.
+ */
+const pagingOf = (maxPageSize: number): PaginationStyle => ({
 	kind: 'page',
 	pageParam: 'page',
 	sizeParam: 'size',
 	zeroBased: true,
-	maxPageSize: 100,
-};
+	maxPageSize,
+});
+const LITE_PAGING = pagingOf(100);
+const FULL_PAGING = pagingOf(20);
 
 const CALLS = '/api/usercall';
 
-const callField = (): INodeProperties =>
-	idPicker('Call Name or ID', 'call', 'getHubCalls', undefined);
+const RECENT_ONLY =
+	' Only the 100 most recent calls are listed; for an older one, set an expression with its ID.';
+
+const callField = (): INodeProperties => {
+	const field = idPicker('Call Name or ID', 'call', 'getHubCalls', undefined);
+
+	return { ...field, description: field.description + RECENT_ONLY };
+};
+
+const liteRowsOption: INodeProperties = {
+	displayName: 'Light Rows',
+	name: 'lite',
+	type: 'boolean',
+	default: true,
+	description:
+		'Whether to return only the fields a list row shows. Turn off for the full call with every transcript and AI output, which is hundreds of times larger and fetched 20 at a time.',
+};
+
+/** Light rows unless the user turned them off. */
+const isLite = (p: ParamReader) => p.get<IDataObject>('additionalFields', {}).lite !== false;
 
 const queryField = (description: string): INodeProperties => ({
 	displayName: 'Query',
@@ -58,9 +76,18 @@ const callOperations: OperationDef[] = [
 		name: 'List',
 		action: 'List calls',
 		description: 'List your calls, most recent first',
-		fields: [],
+		fields: [collection('Additional Fields', 'additionalFields', [liteRowsOption])],
 		list: true,
-		build: () => ({ method: 'GET', path: `${CALLS}/all`, paginate: CALL_PAGING }),
+		// /all has no light view; an empty search is the same list in the same order.
+		build: (p) =>
+			isLite(p)
+				? {
+						method: 'GET',
+						path: `${CALLS}/search`,
+						qs: { query: '', view: 'lite' },
+						paginate: LITE_PAGING,
+					}
+				: { method: 'GET', path: `${CALLS}/all`, paginate: FULL_PAGING },
 	},
 	{
 		operation: 'count',
@@ -77,16 +104,7 @@ const callOperations: OperationDef[] = [
 		description: 'Search calls by name, description, attendees and transcript',
 		fields: [
 			queryField(SEARCH_DESCRIPTION),
-			collection('Additional Fields', 'additionalFields', [
-				{
-					displayName: 'Light Rows',
-					name: 'lite',
-					type: 'boolean',
-					default: false,
-					description:
-						'Whether to return only the fields a list row shows. The full response carries every transcript and AI output and can be hundreds of times larger.',
-				},
-			]),
+			collection('Additional Fields', 'additionalFields', [liteRowsOption]),
 		],
 		list: true,
 		build: (p) => ({
@@ -94,9 +112,9 @@ const callOperations: OperationDef[] = [
 			path: `${CALLS}/search`,
 			qs: {
 				query: p.get<string>('query', ''),
-				view: p.get<IDataObject>('additionalFields', {}).lite === true ? 'lite' : undefined,
+				view: isLite(p) ? 'lite' : undefined,
 			},
-			paginate: CALL_PAGING,
+			paginate: isLite(p) ? LITE_PAGING : FULL_PAGING,
 		}),
 	},
 	{
@@ -117,7 +135,10 @@ const callOperations: OperationDef[] = [
 		action: 'Get a call',
 		description: 'Get one call with its summary, attendees, recordings and action items',
 		fields: [callField()],
-		build: (p) => ({ method: 'GET', path: `${CALLS}/${encodeURIComponent(p.get<string>('call'))}` }),
+		build: (p) => ({
+			method: 'GET',
+			path: `${CALLS}/${encodeURIComponent(p.get<string>('call'))}`,
+		}),
 	},
 ];
 
@@ -131,18 +152,58 @@ export const call: ResourceDef = {
 
 /* ---------- recordings ---------- */
 
-const recordingPath = (p: ParamReader) =>
-	encodePath`/api/recording/${p.get<string>('recording')}`;
+const recordingPath = (p: ParamReader) => encodePath`/api/recording/${p.get<string>('recording')}`;
 
-const recordingField = (): INodeProperties =>
-	idPicker('Recording Name or ID', 'recording', 'getHubRecordings', undefined);
+const recordingField = (): INodeProperties => {
+	const field = idPicker('Recording Name or ID', 'recording', 'getHubRecordings', undefined);
+
+	return {
+		...field,
+		description:
+			field.description +
+			' Only recordings of the 100 most recent calls are listed; for an older one, set an expression with its ID.',
+	};
+};
+
+/** File extension for the content types Hub serves; none for anything else. */
+const EXTENSIONS: Record<string, string> = {
+	'video/mp4': 'mp4',
+	'audio/mp4': 'm4a',
+	'audio/x-m4a': 'm4a',
+	'audio/m4a': 'm4a',
+	'audio/aac': 'aac',
+	'audio/mpeg': 'mp3',
+	'audio/ogg': 'ogg',
+	'audio/wav': 'wav',
+	'audio/x-wav': 'wav',
+	'audio/webm': 'webm',
+	'video/webm': 'webm',
+	'video/quicktime': 'mov',
+	'video/x-matroska': 'mkv',
+	'image/jpeg': 'jpg',
+	'image/png': 'png',
+	'image/webp': 'webp',
+	'image/gif': 'gif',
+};
+
+/** Adds the extension that the content type implies to a downloaded file's name. */
+function withExtension(binary: IBinaryData): IBinaryData {
+	const extension = EXTENSIONS[(binary.mimeType ?? '').toLowerCase()];
+	if (!extension) {
+		return binary;
+	}
+
+	return {
+		...binary,
+		fileName: `${binary.fileName ?? 'recording'}.${extension}`,
+		fileExtension: extension,
+	};
+}
 
 /** A signed-URL response is the URL itself (a bare or JSON-quoted string); accept an object too. */
 function signedUrl(response: unknown): string {
 	const value =
-		response !== null && typeof response === 'object'
-			? (response as IDataObject).url
-			: response;
+		response !== null && typeof response === 'object' ? (response as IDataObject).url : response;
 	if (typeof value !== 'string' || value.trim() === '') {
 		throw new ApplicationError('Hub returned no signed URL for this recording');
 	}
@@ -196,7 +257,9 @@ function urlOperation(
 			);
 			const item: INodeExecutionData = { json: { url } };
 			if (p.get<boolean>('download', false)) {
-				item.binary = { data: await ctx.downloadToBinary(url, `recording-${id}-${kind}`) };
+				item.binary = {
+					data: withExtension(await ctx.downloadToBinary(url, `recording-${id}-${kind}`)),
+				};
 			}
 
 			return [item];
@@ -294,7 +357,8 @@ const recordingOperations: OperationDef[] = [
 				name: 'saveToDb',
 				type: 'boolean',
 				default: true,
-				description: 'Whether to store the new version. When off, the new summary is only returned.',
+				description:
+					'Whether to store the new version. When off, the new summary is only returned.',
 			},
 		],
 		run: async (ctx, p) => {
@@ -313,7 +377,10 @@ const recordingOperations: OperationDef[] = [
 		action: 'Reprocess a recording',
 		description:
 			'Re-run the whole pipeline: transcription, summary, key points and action items. Slow and expensive; prefer Regenerate Summary.',
-		fields: [recordingField(), collection('Additional Fields', 'additionalFields', reprocessOptions)],
+		fields: [
+			recordingField(),
+			collection('Additional Fields', 'additionalFields', reprocessOptions),
+		],
 		build: (p) => {
 			const { callProcessingMethod, callReasoningEffort, applyCorrections } = p.get<IDataObject>(
 				'additionalFields',
