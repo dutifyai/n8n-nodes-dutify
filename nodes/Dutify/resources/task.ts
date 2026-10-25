@@ -1,6 +1,6 @@
-import type { IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
+import type { IDataObject, INodeProperties } from 'n8n-workflow';
 import { ApplicationError } from 'n8n-workflow';
-import { dateTime, splitList, toInstant } from '../../../shared/fieldHelpers';
+import { dateTime, oneItem, splitList, toInstant } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationContext,
@@ -62,14 +62,6 @@ function withParams(p: ParamReader, overrides: Record<string, unknown>): ParamRe
 				? overrides[name]
 				: p.get(name, fallback)) as T,
 	};
-}
-
-function oneItem(response: unknown): INodeExecutionData[] {
-	if (response === undefined || response === null || response === '') {
-		return [{ json: { success: true } }];
-	}
-
-	return [{ json: response as IDataObject }];
 }
 
 /* ---------- list name -> identifier ---------- */

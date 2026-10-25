@@ -1,5 +1,5 @@
 import { ApplicationError } from 'n8n-workflow';
-import type { IDataObject, INodeProperties } from 'n8n-workflow';
+import type { IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
 
 /** Field-building helpers shared by the resource definitions. */
 
@@ -82,4 +82,37 @@ export const dateTime = (
 	type: 'dateTime',
 	default: '',
 	description,
+});
+
+/** A single-response operation's result as one item. A blank response (204) becomes `{ success: true }`. */
+export function oneItem(response: unknown): INodeExecutionData[] {
+	if (response === undefined || response === null || response === '') {
+		return [{ json: { success: true } }];
+	}
+
+	return [{ json: response as IDataObject }];
+}
+
+export const EXPRESSION_HINT =
+	'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>';
+
+/** An options field whose choices come from a loader and hold identifiers; the user never types an ID. */
+export const idPicker = (
+	displayName: string,
+	name: string,
+	method: string,
+	showOn: { field: string; value: string } | undefined,
+	dependsOn?: string[],
+): INodeProperties => ({
+	displayName,
+	name,
+	type: 'options',
+	typeOptions: {
+		loadOptionsMethod: method,
+		...(dependsOn ? { loadOptionsDependsOn: dependsOn } : {}),
+	},
+	default: '',
+	required: true,
+	...(showOn ? { displayOptions: { show: { [showOn.field]: [showOn.value] } } } : {}),
+	description: EXPRESSION_HINT,
 });

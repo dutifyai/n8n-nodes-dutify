@@ -1,6 +1,13 @@
 import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
-import { collection, isSet, jsonField, requireChange, text } from '../../../shared/fieldHelpers';
+import {
+	collection,
+	idPicker,
+	isSet,
+	jsonField,
+	requireChange,
+	text,
+} from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationDef,
@@ -19,9 +26,6 @@ const CURSOR_PAGING: PaginationStyle = {
 	nextCursorPath: 'nextCursor',
 	maxPageSize: 200,
 };
-
-const EXPRESSION_HINT =
-	'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>';
 
 /** Copies the listed keys of a collection into a body. Keys in `keepEmpty` keep a blank value. */
 function pick(
@@ -91,26 +95,6 @@ const SCOPE_OPTIONS = [
 	{ name: 'Folder', value: 'folder' },
 	{ name: 'List', value: 'list' },
 ];
-
-const idPicker = (
-	displayName: string,
-	name: string,
-	method: string,
-	showOn: { field: string; value: string } | undefined,
-	dependsOn?: string[],
-): INodeProperties => ({
-	displayName,
-	name,
-	type: 'options',
-	typeOptions: {
-		loadOptionsMethod: method,
-		...(dependsOn ? { loadOptionsDependsOn: dependsOn } : {}),
-	},
-	default: '',
-	required: true,
-	...(showOn ? { displayOptions: { show: { [showOn.field]: [showOn.value] } } } : {}),
-	description: EXPRESSION_HINT,
-});
 
 const SCOPE_PARAMS = ['scope', 'scopeSpaceId', 'scopeFolderId', 'scopeListId'];
 
