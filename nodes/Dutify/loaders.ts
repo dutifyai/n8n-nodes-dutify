@@ -215,7 +215,10 @@ interface WikiPageRow {
 }
 
 /** Value is the slug (lite endpoints address pages by slug); the label shows the ancestry. */
-export function wikiPageOptions(rows: WikiPageRow[] | null | undefined): INodePropertyOptions[] {
+export function wikiPageOptions(
+	rows: WikiPageRow[] | null | undefined,
+	valueKey: 'slug' | 'id' = 'slug',
+): INodePropertyOptions[] {
 	const byId = new Map((rows ?? []).filter((r) => r.id).map((r) => [r.id as string, r]));
 	const titleOf = (row: WikiPageRow) => row.title ?? (row.slug as string);
 	const path = (row: WikiPageRow): string => {
@@ -225,10 +228,10 @@ export function wikiPageOptions(rows: WikiPageRow[] | null | undefined): INodePr
 	};
 
 	return (rows ?? [])
-		.filter((r) => r.slug)
+		.filter((r) => r[valueKey])
 		.map((r) => ({
 			name: r.type === 'folder' ? `${path(r)} (folder)` : path(r),
-			value: r.slug as string,
+			value: r[valueKey] as string,
 		}));
 }
 
@@ -237,6 +240,35 @@ export function wikiParentPageOptions(
 	rows: WikiPageRow[] | null | undefined,
 ): INodePropertyOptions[] {
 	return [{ name: '- Top Level -', value: '' }, ...wikiPageOptions(rows)];
+}
+
+/** Attachment endpoints address the page by UUID, so this picker is valued by page id, not slug. */
+export function wikiPageIdOptions(rows: WikiPageRow[] | null | undefined): INodePropertyOptions[] {
+	return wikiPageOptions(rows, 'id');
+}
+
+export function wikiAttachmentsSpec(pageId: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/api/wiki/v1/pages/${pageId}/attachments` };
+}
+
+interface WikiAttachmentRow {
+	id?: string;
+	filename?: string;
+	status?: string;
+}
+
+export function wikiAttachmentOptions(
+	rows: WikiAttachmentRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((r) => r.id)
+		.map((r) => ({
+			name:
+				r.status && r.status !== 'confirmed'
+					? `${r.filename ?? r.id} (${r.status})`
+					: (r.filename ?? (r.id as string)),
+			value: r.id as string,
+		}));
 }
 
 export function boardsSpec(workspace: string): RequestSpec {
@@ -909,6 +941,23 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getWikiParentPages(this: ILoadOptionsFunctions) {
 		return wikiParentPageOptions(await loadWikiPages(this));
+	},
+	async getWikiPageIds(this: ILoadOptionsFunctions) {
+		return wikiPageIdOptions(await loadWikiPages(this));
+	},
+	async getWikiAttachments(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const pageId = optionalParam(this, 'pageId');
+		if (!workspace || !pageId) {
+			return [];
+		}
+		const rows = (await dutifyRequest.call(
+			this,
+			wikiAttachmentsSpec(pageId),
+			workspace,
+		)) as Parameters<typeof wikiAttachmentOptions>[0];
+
+		return wikiAttachmentOptions(rows);
 	},
 	async getBoards(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);

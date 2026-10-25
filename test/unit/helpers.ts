@@ -21,18 +21,36 @@ export function reader(params: Record<string, unknown>, workspace = 'ws-1'): Par
 	};
 }
 
+interface FakePut {
+	url: string;
+	data: Buffer;
+	mimeType: string;
+}
+
+export type FakeContext = OperationContext & {
+	calls: RequestSpec[];
+	puts: FakePut[];
+	/** Requests and PUTs in the order they happened, e.g. `POST /path`, `PUT https://...`. */
+	events: string[];
+};
+
 /**
  * An OperationContext that answers requests from `responses` in order and records every
  * RequestSpec it was asked to send. A response that is an Error is thrown instead.
  * `requestAll` paginates exactly like the real node (same `requestAllPages` helper).
  */
-export function fakeContext(responses: unknown[]): OperationContext & { calls: RequestSpec[] } {
+export function fakeContext(responses: unknown[]): FakeContext {
 	const queue = [...responses];
 	const calls: RequestSpec[] = [];
-	const ctx: OperationContext & { calls: RequestSpec[] } = {
+	const puts: FakePut[] = [];
+	const events: string[] = [];
+	const ctx: FakeContext = {
 		calls,
+		puts,
+		events,
 		async request(spec) {
 			calls.push(spec);
+			events.push(`${spec.method} ${spec.path}`);
 			if (queue.length === 0) {
 				throw new Error(`fakeContext: no response left for ${spec.method} ${spec.path}`);
 			}
@@ -61,6 +79,10 @@ export function fakeContext(responses: unknown[]): OperationContext & { calls: R
 			};
 
 			return binary;
+		},
+		async putBinary(url, data, mimeType) {
+			events.push(`PUT ${url}`);
+			puts.push({ url, data, mimeType });
 		},
 	};
 

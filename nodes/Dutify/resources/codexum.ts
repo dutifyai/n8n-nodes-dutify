@@ -17,7 +17,7 @@ import type { OperationDef, ParamReader, ResourceDef } from '../../../shared/typ
 /** The page list endpoint returns at most 500 items and has no paging. */
 const PAGE_LIST_MAX = 500;
 
-const spaceField = (): INodeProperties =>
+export const spaceField = (): INodeProperties =>
 	idPicker('Space Name or ID', 'space', 'getWikiSpaces', undefined);
 
 /** Pages are addressed by slug; the picker lists the pages of the chosen space. */

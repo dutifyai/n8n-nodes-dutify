@@ -12,6 +12,7 @@ import { dutifyRequest } from '../../shared/transport';
 import { importJob, invitation, member, team } from './resources/admin';
 import { automation } from './resources/automation';
 import { codexumPage, codexumSpace } from './resources/codexum';
+import { codexumAttachment } from './resources/codexumAttachment';
 import { customField, folder, list, space, tag } from './resources/structure';
 import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
@@ -50,6 +51,7 @@ export const resources: ResourceDef[] = [
 	pmWebhook,
 	codexumPage,
 	codexumSpace,
+	codexumAttachment,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */
@@ -215,6 +217,17 @@ async function runOperation(
 				fileName,
 				typeof contentType === 'string' ? contentType.split(';')[0].trim() : undefined,
 			);
+		},
+		putBinary: async (url, data, mimeType) => {
+			// Presigned storage URL: no Dutify credentials. The signature covers Content-Type
+			// (and Content-Length, which the HTTP client derives from the Buffer).
+			await this.helpers.httpRequest({
+				method: 'PUT',
+				url,
+				body: data,
+				headers: { 'Content-Type': mimeType },
+				json: false,
+			});
 		},
 	};
 

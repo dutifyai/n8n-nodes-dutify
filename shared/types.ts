@@ -50,6 +50,8 @@ export interface OperationContext {
 	readBinary(property: string): Promise<{ data: Buffer; mimeType: string; fileName: string }>;
 	/** Unauthenticated GET of a signed URL, returned as n8n binary data. */
 	downloadToBinary(url: string, fileName?: string): Promise<IBinaryData>;
+	/** Unauthenticated PUT of raw bytes to a presigned URL. */
+	putBinary(url: string, data: Buffer, mimeType: string): Promise<void>;
 }
 
 export interface OperationDef {
