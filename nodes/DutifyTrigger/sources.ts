@@ -14,8 +14,13 @@ export interface WebhookSource {
 	/** The id of the created webhook. The secret is the generated one: Dutify never returns it. */
 	parseCreated(res: unknown, secret: string): { id: string; secret: string };
 	list(cfg: IDataObject): RequestSpec;
-	/** The id of a listed webhook delivering to `url` (and, when given, with that `id`), else null. */
-	findExisting(res: unknown, url: string, id?: string): string | null;
+	/** The listed webhooks that deliver to `url`, in list order. */
+	listAtUrl(res: unknown, url: string): ListedWebhook[];
+	/**
+	 * Re-registers `existing` (a webhook already at the trigger URL) with a new secret and the
+	 * current settings, and switches it on, instead of creating another one.
+	 */
+	update(existing: ListedWebhook, secret: string, cfg: IDataObject): RequestSpec;
 	remove(id: string, cfg: IDataObject): RequestSpec;
 	/** Stops deliveries without deleting; used when the service refuses the delete. */
 	deactivate(id: string, cfg: IDataObject): RequestSpec;
@@ -23,13 +28,29 @@ export interface WebhookSource {
 	signatureHeader: string;
 }
 
+/** A webhook the service lists at the trigger URL. */
+export interface ListedWebhook {
+	id: string;
+	/** False once paused (by the trigger, or by the service itself, e.g. after failed deliveries). */
+	active: boolean;
+	/** Whether it is narrowed to a space, folder, list or task. */
+	scoped: boolean;
+	createdAt?: string;
+}
+
 interface PmWebhookRow {
 	identifier?: string;
 	url?: string;
+	active?: boolean;
+	scopeType?: string | null;
+	createdAt?: string;
 }
 
 const pmWebhooksPath = (cfg: IDataObject) =>
 	encodePath`/mp/api/v1/workspaces/${String(cfg.workspace ?? '')}/webhooks`;
+
+const pmWebhookPath = (id: string, cfg: IDataObject) =>
+	`${pmWebhooksPath(cfg)}/${encodeURIComponent(id)}`;
 
 /** PM webhook subscriptions (Webhook Resource). Deliveries carry `X-Webhook-Signature-256`. */
 const pm: WebhookSource = {
@@ -53,24 +74,36 @@ const pm: WebhookSource = {
 	list(cfg) {
 		return { method: 'GET', path: pmWebhooksPath(cfg) };
 	},
-	findExisting(res, url, id) {
+	listAtUrl(res, url) {
 		const rows = Array.isArray(res) ? (res as PmWebhookRow[]) : [];
-		const found = rows.find(
-			(row) => row.identifier && row.url === url && (id === undefined || row.identifier === id),
-		);
 
-		return found?.identifier ?? null;
+		return rows
+			.filter((row) => row.identifier && row.url === url)
+			.map((row) => ({
+				id: String(row.identifier),
+				active: row.active !== false,
+				scoped: Boolean(row.scopeType),
+				createdAt: row.createdAt,
+			}));
+	},
+	update(existing, secret, cfg) {
+		// UpdateWebhookRequest: every field is optional; the URL stays as it is.
+		const body: IDataObject = { secret, eventTypes: cfg.eventTypes, active: true };
+		if (cfg.scopeType) {
+			body.scopeType = cfg.scopeType;
+			body.scopeEntityIdentifier = cfg.scopeEntityIdentifier;
+		} else if (existing.scoped) {
+			body.clearScope = true;
+		}
+
+		return { method: 'PUT', path: pmWebhookPath(existing.id, cfg), body };
 	},
 	remove(id, cfg) {
-		return { method: 'DELETE', path: `${pmWebhooksPath(cfg)}/${encodeURIComponent(id)}` };
+		return { method: 'DELETE', path: pmWebhookPath(id, cfg) };
 	},
 	deactivate(id, cfg) {
 		// UpdateWebhookRequest: every field is optional, so this only switches the webhook off.
-		return {
-			method: 'PUT',
-			path: `${pmWebhooksPath(cfg)}/${encodeURIComponent(id)}`,
-			body: { active: false },
-		};
+		return { method: 'PUT', path: pmWebhookPath(id, cfg), body: { active: false } };
 	},
 	signatureHeader: 'x-webhook-signature-256',
 };

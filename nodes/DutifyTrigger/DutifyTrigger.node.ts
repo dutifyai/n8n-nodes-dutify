@@ -16,7 +16,7 @@ import type { ParamReader, RequestSpec } from '../../shared/types';
 import { listSearch, loadOptions } from '../Dutify/loaders';
 import { scopeBody, scopeFields } from '../Dutify/resources/pmWebhook';
 import { sources, verifySignature } from './sources';
-import type { WebhookSource } from './sources';
+import type { ListedWebhook, WebhookSource } from './sources';
 
 /**
  * Static data of the node: the registered webhook, the secret that signs its deliveries and the
@@ -114,6 +114,17 @@ async function listWebhooks(
 	return await dutifyRequest.call(ctx, source.list({ workspace }), workspace);
 }
 
+/**
+ * The webhook at the trigger URL to reuse: an active one before a paused one, then the newest.
+ * Undefined when there is none.
+ */
+function pickReusable(atUrl: ListedWebhook[]): ListedWebhook | undefined {
+	const newestFirst = (a: ListedWebhook, b: ListedWebhook) =>
+		(b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+
+	return [...atUrl].sort((a, b) => Number(b.active) - Number(a.active) || newestFirst(a, b))[0];
+}
+
 /** The source settings of the create request. A task key scope is resolved to its task ID. */
 async function sourceConfig(ctx: IHookFunctions, workspace: string): Promise<IDataObject> {
 	const eventTypes = ctx.getNodeParameter('events', []) as string[];
@@ -189,7 +200,11 @@ export class DutifyTrigger implements INodeType {
 
 	webhookMethods = {
 		default: {
-			/** True while the stored webhook is still registered at this URL; a restart then reuses it. */
+			/**
+			 * True while the stored webhook is still registered, and switched on, at this URL; a restart
+			 * then reuses it. One that Dutify paused (e.g. after failed deliveries) counts as missing,
+			 * so n8n calls create, which switches it back on.
+			 */
 			async checkExists(this: IHookFunctions): Promise<boolean> {
 				const stored = this.getWorkflowStaticData('node') as StoredWebhook;
 				if (!stored.webhookId || !stored.secret) {
@@ -203,14 +218,19 @@ export class DutifyTrigger implements INodeType {
 				}
 				const listed = await listWebhooks(this, source, workspace);
 
-				return source.findExisting(listed, webhookUrlOf(this), stored.webhookId) !== null;
+				return source
+					.listAtUrl(listed, webhookUrlOf(this))
+					.some((hook) => hook.id === stored.webhookId && hook.active);
 			},
 
 			/**
-			 * Registers this URL with a fresh secret. Webhooks already at this URL are removed first
-			 * (a leftover whose secret is lost, or the stored one), so no duplicate keeps delivering.
-			 * Webhooks at any other URL are left alone: n8n's test and production URLs differ, and
-			 * listening for a test event must not delete the production webhook.
+			 * Registers this URL with a fresh secret. A webhook already at this URL in the workspace
+			 * (the stored one, or a leftover whose secret is lost; paused or not) is updated and
+			 * switched on instead of creating another, so paused rows do not pile up against the plan
+			 * quota. Only when there is none is a new one created. Other active webhooks at this URL
+			 * are removed, so no duplicate keeps delivering, and so is the stored webhook of a previous
+			 * workspace. Webhooks at any other URL are left alone: n8n's test and production URLs
+			 * differ, and listening for a test event must not touch the production webhook.
 			 */
 			async create(this: IHookFunctions): Promise<boolean> {
 				const stored = this.getWorkflowStaticData('node') as StoredWebhook;
@@ -219,19 +239,18 @@ export class DutifyTrigger implements INodeType {
 				const url = webhookUrlOf(this);
 				const cfg = await sourceConfig(this, workspace);
 
-				const listed = await listWebhooks(this, source, workspace);
-				const stale: Array<{ id: string; workspace: string }> = [];
-				const leftover = source.findExisting(listed, url);
-				if (leftover) {
-					stale.push({ id: leftover, workspace });
-				}
-				if (stored.webhookId && stored.webhookId !== leftover) {
-					const storedWorkspace = stored.workspace || workspace;
-					const storedListed =
-						storedWorkspace === workspace
-							? listed
-							: await listWebhooks(this, source, storedWorkspace);
-					if (source.findExisting(storedListed, url, stored.webhookId)) {
+				const atUrl = source.listAtUrl(await listWebhooks(this, source, workspace), url);
+				const reuse = pickReusable(atUrl);
+				const stale: Array<{ id: string; workspace: string }> = atUrl
+					.filter((hook) => hook !== reuse && hook.active)
+					.map((hook) => ({ id: hook.id, workspace }));
+				const storedWorkspace = stored.workspace || workspace;
+				if (stored.webhookId && storedWorkspace !== workspace) {
+					const storedAtUrl = source.listAtUrl(
+						await listWebhooks(this, source, storedWorkspace),
+						url,
+					);
+					if (storedAtUrl.some((hook) => hook.id === stored.webhookId)) {
 						stale.push({ id: stored.webhookId, workspace: storedWorkspace });
 					}
 				}
@@ -241,12 +260,18 @@ export class DutifyTrigger implements INodeType {
 				forget(stored);
 
 				const secret = randomBytes(32).toString('hex');
-				const created = await dutifyRequest.call(
-					this,
-					source.create(url, secret, cfg),
-					workspace,
-				);
-				const { id } = source.parseCreated(created, secret);
+				let id: string;
+				if (reuse) {
+					await dutifyRequest.call(this, source.update(reuse, secret, cfg), workspace);
+					id = reuse.id;
+				} else {
+					const created = await dutifyRequest.call(
+						this,
+						source.create(url, secret, cfg),
+						workspace,
+					);
+					id = source.parseCreated(created, secret).id;
+				}
 				stored.webhookId = id;
 				stored.secret = secret;
 				stored.workspace = workspace;

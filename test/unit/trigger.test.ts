@@ -153,26 +153,89 @@ describe('PM webhook source', () => {
 		}
 	});
 
-	describe('findExisting', () => {
+	describe('listAtUrl', () => {
 		const rows = [
-			{ identifier: 'whk_1', url: 'https://other.example.com/hook' },
+			{ identifier: 'whk_1', url: 'https://other.example.com/hook', active: true },
 			{ identifier: 'whk_2', url: URL },
+			{
+				identifier: 'whk_3',
+				url: URL,
+				active: false,
+				scopeType: 'SPACE',
+				scopeEntityIdentifier: 'spc_1',
+				createdAt: '2026-10-20T10:00:00Z',
+			},
+			{ url: URL, active: true },
 		];
 
-		it('returns the id of the webhook whose url matches', () => {
-			expect(pm.findExisting(rows, URL)).toBe('whk_2');
+		it('returns the webhooks delivering to url, with their state, scope and creation time', () => {
+			expect(pm.listAtUrl(rows, URL)).toEqual([
+				{ id: 'whk_2', active: true, scoped: false, createdAt: undefined },
+				{ id: 'whk_3', active: false, scoped: true, createdAt: '2026-10-20T10:00:00Z' },
+			]);
 		});
 
-		it('returns null when no url matches', () => {
-			expect(pm.findExisting(rows, 'https://nope.example.com/x')).toBeNull();
-			expect(pm.findExisting([], URL)).toBeNull();
-			expect(pm.findExisting(null, URL)).toBeNull();
+		it('counts a row without an active flag as active (PM sends it; older rows may not)', () => {
+			expect(pm.listAtUrl([{ identifier: 'whk_2', url: URL }], URL)[0].active).toBe(true);
 		});
 
-		it('narrowed to an id, matches only that webhook at that url', () => {
-			expect(pm.findExisting(rows, URL, 'whk_2')).toBe('whk_2');
-			expect(pm.findExisting(rows, URL, 'whk_1')).toBeNull();
-			expect(pm.findExisting(rows, URL, 'whk_9')).toBeNull();
+		it('returns nothing when no url matches or the list is not an array', () => {
+			expect(pm.listAtUrl(rows, 'https://nope.example.com/x')).toEqual([]);
+			expect(pm.listAtUrl([], URL)).toEqual([]);
+			expect(pm.listAtUrl(null, URL)).toEqual([]);
+		});
+	});
+
+	describe('update (reuse of a webhook already at the URL)', () => {
+		const updateWebhookRequest = [
+			'url',
+			'secret',
+			'name',
+			'eventTypes',
+			'active',
+			'scopeType',
+			'scopeEntityIdentifier',
+			'clearScope',
+		];
+		const unscoped = { id: 'whk_1', active: false, scoped: false };
+		const scoped = { id: 'whk_1', active: false, scoped: true };
+
+		it('PUTs the new secret, events and active:true, a body that fits UpdateWebhookRequest', () => {
+			const spec = pm.update(unscoped, 'sek2', { workspace: 'ws 1', eventTypes: ['task-created'] });
+			expect(spec).toEqual({
+				method: 'PUT',
+				path: '/mp/api/v1/workspaces/ws%201/webhooks/whk_1',
+				body: { secret: 'sek2', eventTypes: ['task-created'], active: true },
+			});
+			for (const key of Object.keys(spec.body as IDataObject)) {
+				expect(updateWebhookRequest).toContain(key);
+			}
+		});
+
+		it('sends the new scope', () => {
+			const spec = pm.update(scoped, 'sek2', {
+				workspace: 'ws-1',
+				eventTypes: ['task-created'],
+				scopeType: 'TASK_LIST',
+				scopeEntityIdentifier: 'lst_1',
+			});
+			expect(spec.body).toEqual({
+				secret: 'sek2',
+				eventTypes: ['task-created'],
+				active: true,
+				scopeType: 'TASK_LIST',
+				scopeEntityIdentifier: 'lst_1',
+			});
+		});
+
+		it('clears the old scope when the new config has none', () => {
+			const spec = pm.update(scoped, 'sek2', { workspace: 'ws-1', eventTypes: ['task-created'] });
+			expect(spec.body).toEqual({
+				secret: 'sek2',
+				eventTypes: ['task-created'],
+				active: true,
+				clearScope: true,
+			});
 		});
 	});
 });
@@ -286,6 +349,14 @@ describe('checkExists', () => {
 		expect(await hooks.checkExists.call(ctx)).toBe(true);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`GET ${LIST_PATH}`]);
 		expect((calls[0].headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
+	});
+
+	it('is false when PM paused the stored webhook (active:false), so n8n calls create and it is resumed', async () => {
+		const { ctx } = hookContext({
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1' },
+			responses: [[{ identifier: 'whk_1', url: HOOK_URL, active: false }]],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
 	});
 
 	it('is false when the stored webhook was deleted in Dutify, so n8n re-creates it', async () => {
@@ -405,24 +476,139 @@ describe('create', () => {
 		expect(body.scopeEntityIdentifier).toBe('tsk_42');
 	});
 
-	it('removes a leftover webhook at this URL (its secret is lost) before registering, so there is no duplicate', async () => {
+	it('reuses a leftover webhook at this URL (its secret is lost) via PUT with a fresh secret, creating nothing', async () => {
 		const { ctx, calls, staticData } = hookContext({
 			responses: [
 				[
 					{ identifier: 'whk_other', url: 'https://elsewhere.example.com/h' },
-					{ identifier: 'whk_orphan', url: HOOK_URL },
+					{ identifier: 'whk_orphan', url: HOOK_URL, active: true },
 				],
-				undefined,
-				{ identifier: 'whk_new' },
+				{ identifier: 'whk_orphan', url: HOOK_URL, active: true },
+			],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_orphan`,
+		]);
+		const body = calls[1].body as IDataObject;
+		expect(body).toEqual({
+			secret: body.secret,
+			eventTypes: ['task-created', 'task-status-changed'],
+			active: true,
+		});
+		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
+		expect((calls[1].headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
+		expect(staticData).toEqual({ webhookId: 'whk_orphan', secret: body.secret, workspace: 'ws-1' });
+	});
+
+	it('resumes a paused webhook at this URL (PUT active:true) instead of adding one more row to the quota', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			staticData: { webhookId: 'whk_used', secret: 'old', workspace: 'ws-1' },
+			responses: [
+				[{ identifier: 'whk_used', url: HOOK_URL, active: false, pauseReasonCode: 'SUSTAINED_DELIVERY_FAILURES' }],
+				{ identifier: 'whk_used', active: true },
 			],
 		});
 		await hooks.create.call(ctx);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
 			`GET ${LIST_PATH}`,
-			`DELETE ${LIST_PATH}/whk_orphan`,
-			`POST ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_used`,
 		]);
+		expect((calls[1].body as IDataObject).active).toBe(true);
+		expect(staticData.webhookId).toBe('whk_used');
+		expect(staticData.secret).not.toBe('old');
+		expect(staticData.secret).toBe((calls[1].body as IDataObject).secret);
+	});
+
+	it('with a paused and an active row at this URL, reuses the active one and leaves the paused one alone', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			responses: [
+				[
+					{ identifier: 'whk_paused', url: HOOK_URL, active: false, createdAt: '2026-10-24T10:00:00Z' },
+					{ identifier: 'whk_live', url: HOOK_URL, active: true, createdAt: '2026-10-20T10:00:00Z' },
+				],
+				{ identifier: 'whk_live', active: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_live`,
+		]);
+		expect(staticData.webhookId).toBe('whk_live');
+	});
+
+	it('with only paused rows at this URL, resumes the newest', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			responses: [
+				[
+					{ identifier: 'whk_a', url: HOOK_URL, active: false, createdAt: '2026-10-20T10:00:00Z' },
+					{ identifier: 'whk_b', url: HOOK_URL, active: false, createdAt: '2026-10-24T10:00:00Z' },
+					{ identifier: 'whk_c', url: HOOK_URL, active: false, createdAt: '2026-10-22T10:00:00Z' },
+				],
+				{ identifier: 'whk_b', active: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_b`,
+		]);
+		expect(staticData.webhookId).toBe('whk_b');
+	});
+
+	it('with two active rows at this URL, reuses the newest and removes the other so only one delivers', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			responses: [
+				[
+					{ identifier: 'whk_old', url: HOOK_URL, active: true, createdAt: '2026-10-20T10:00:00Z' },
+					{ identifier: 'whk_new', url: HOOK_URL, active: true, createdAt: '2026-10-24T10:00:00Z' },
+				],
+				httpError(409, 'Webhook has deliveries'),
+				{ identifier: 'whk_old', active: false },
+				{ identifier: 'whk_new', active: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`DELETE ${LIST_PATH}/whk_old`,
+			`PUT ${LIST_PATH}/whk_old`,
+			`PUT ${LIST_PATH}/whk_new`,
+		]);
+		expect(calls[2].body).toEqual({ active: false });
+		expect((calls[3].body as IDataObject).active).toBe(true);
 		expect(staticData.webhookId).toBe('whk_new');
+	});
+
+	it('clears the scope of a reused row when the trigger now watches the whole workspace', async () => {
+		const { ctx, calls } = hookContext({
+			responses: [
+				[{ identifier: 'whk_1', url: HOOK_URL, active: false, scopeType: 'SPACE', scopeEntityIdentifier: 'spc_1' }],
+				{ identifier: 'whk_1', active: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		const body = calls[1].body as IDataObject;
+		expect(calls[1].method).toBe('PUT');
+		expect(body.clearScope).toBe(true);
+		expect(body).not.toHaveProperty('scopeType');
+	});
+
+	it('sets the new scope on a reused row', async () => {
+		const { ctx, calls } = hookContext({
+			params: { scopeType: 'TASK_LIST', scopeList: 'lst_9' },
+			responses: [
+				[{ identifier: 'whk_1', url: HOOK_URL, active: true, scopeType: 'SPACE', scopeEntityIdentifier: 'spc_1' }],
+				{ identifier: 'whk_1', active: true },
+			],
+		});
+		await hooks.create.call(ctx);
+		const body = calls[1].body as IDataObject;
+		expect(body.scopeType).toBe('TASK_LIST');
+		expect(body.scopeEntityIdentifier).toBe('lst_9');
+		expect(body).not.toHaveProperty('clearScope');
 	});
 
 	it('leaves the stored webhook alone when it is at another URL (test mode must not delete the production hook)', async () => {
@@ -438,18 +624,17 @@ describe('create', () => {
 		]);
 	});
 
-	it('removes the stored webhook when it is at this URL, before registering again', async () => {
+	it('reuses the stored webhook when it is at this URL, with a fresh secret', async () => {
 		const { ctx, calls, staticData } = hookContext({
 			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-1' },
-			responses: [[{ identifier: 'whk_old', url: HOOK_URL }], undefined, { identifier: 'whk_new' }],
+			responses: [[{ identifier: 'whk_old', url: HOOK_URL }], { identifier: 'whk_old' }],
 		});
 		await hooks.create.call(ctx);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
 			`GET ${LIST_PATH}`,
-			`DELETE ${LIST_PATH}/whk_old`,
-			`POST ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_old`,
 		]);
-		expect(staticData.webhookId).toBe('whk_new');
+		expect(staticData.webhookId).toBe('whk_old');
 		expect(staticData.secret).not.toBe('old');
 	});
 
@@ -478,34 +663,16 @@ describe('create', () => {
 	});
 
 	/*
-	 * PM refuses to delete a webhook that ever delivered (409 ENTITY_IN_USE). Such a leftover is
-	 * paused (PUT active:false) and skipped, so re-activating a trigger that received events works.
+	 * PM refuses to delete a webhook that ever delivered (409 ENTITY_IN_USE). The stored webhook
+	 * of a previous workspace is then paused (PUT active:false), and the trigger registers anew.
 	 */
-	it('pauses a leftover at this URL that cannot be deleted (409), then registers', async () => {
+	it('pauses the stored webhook of the previous workspace when it cannot be deleted (409), then registers', async () => {
 		const { ctx, calls, staticData } = hookContext({
+			params: { workspace: 'ws-new' },
+			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-old' },
 			responses: [
-				[{ identifier: 'whk_used', url: HOOK_URL }],
-				httpError(409, 'Webhook has deliveries'),
-				{ identifier: 'whk_used', active: false },
-				{ identifier: 'whk_new' },
-			],
-		});
-		expect(await hooks.create.call(ctx)).toBe(true);
-		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-			`GET ${LIST_PATH}`,
-			`DELETE ${LIST_PATH}/whk_used`,
-			`PUT ${LIST_PATH}/whk_used`,
-			`POST ${LIST_PATH}`,
-		]);
-		expect(calls[2].body).toEqual({ active: false });
-		expect(staticData.webhookId).toBe('whk_new');
-	});
-
-	it('pauses the stored webhook at this URL when it cannot be deleted (409), then registers', async () => {
-		const { ctx, calls, staticData } = hookContext({
-			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-1' },
-			responses: [
-				[{ identifier: 'whk_old', url: HOOK_URL }],
+				[],
+				[{ identifier: 'whk_old', url: HOOK_URL, active: true }],
 				httpError(409, 'Webhook has deliveries'),
 				{ identifier: 'whk_old', active: false },
 				{ identifier: 'whk_new' },
@@ -513,12 +680,29 @@ describe('create', () => {
 		});
 		await hooks.create.call(ctx);
 		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
-			`GET ${LIST_PATH}`,
-			`DELETE ${LIST_PATH}/whk_old`,
-			`PUT ${LIST_PATH}/whk_old`,
-			`POST ${LIST_PATH}`,
+			`GET ${BASE}/mp/api/v1/workspaces/ws-new/webhooks`,
+			`GET ${OLD_WS_PATH}`,
+			`DELETE ${OLD_WS_PATH}/whk_old`,
+			`PUT ${OLD_WS_PATH}/whk_old`,
+			`POST ${BASE}/mp/api/v1/workspaces/ws-new/webhooks`,
 		]);
-		expect(staticData.webhookId).toBe('whk_new');
+		expect(calls[3].body).toEqual({ active: false });
+		expect(staticData).toEqual({
+			webhookId: 'whk_new',
+			secret: (calls[4].body as IDataObject).secret,
+			workspace: 'ws-new',
+		});
+	});
+
+	it('surfaces a rejected reuse (PUT) as the NodeApiError and stores nothing', async () => {
+		const { ctx, staticData } = hookContext({
+			staticData: { webhookId: 'whk_1', secret: 'old', workspace: 'ws-1' },
+			responses: [[{ identifier: 'whk_1', url: HOOK_URL, active: false }], httpError(500, 'boom')],
+		});
+		const error = await hooks.create.call(ctx).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect((error as NodeApiError).message).toBe('boom');
+		expect(staticData).toEqual({});
 	});
 
 	it('surfaces a rejected create (e.g. plan limit) and stores nothing', async () => {
@@ -599,7 +783,13 @@ describe('delete', () => {
 
 	it('a failed stale removal in create surfaces as the NodeApiError with Dutify message and status', async () => {
 		const { ctx } = hookContext({
-			responses: [[{ identifier: 'whk_orphan', url: HOOK_URL }], httpError(500, 'boom')],
+			responses: [
+				[
+					{ identifier: 'whk_a', url: HOOK_URL, active: true, createdAt: '2026-10-20T10:00:00Z' },
+					{ identifier: 'whk_b', url: HOOK_URL, active: true, createdAt: '2026-10-24T10:00:00Z' },
+				],
+				httpError(500, 'boom'),
+			],
 		});
 		const error = await hooks.create.call(ctx).catch((e: unknown) => e);
 		expect(error).toBeInstanceOf(NodeApiError);

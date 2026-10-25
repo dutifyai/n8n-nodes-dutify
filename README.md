@@ -75,7 +75,10 @@ n8n must be reachable from the internet for deliveries to arrive. Self-hosted in
   (feature request and bug) events are coming. Hub meeting events are not available to API keys.
 - **Webhook removal after deliveries:** Dutify currently refuses to delete a PM webhook that
   has delivered at least once (409 ENTITY_IN_USE). When that happens, deactivating the trigger
-  pauses the webhook instead (it stops delivering), and activating again registers a new one.
+  pauses the webhook instead (it stops delivering). Activating again switches that same
+  webhook back on with a new secret, so each n8n URL (test and production) keeps one webhook.
+  A webhook Dutify paused itself (for example after a day of failed deliveries while n8n was
+  down) is switched back on the same way the next time n8n starts or the workflow is activated.
   Paused webhooks still count against the plan's webhook limit (3 on FREE) and cannot be
   removed until the backend fix lands.
 - **Not usable with API keys yet** (Dutify refuses them with 403): Import Job list/get (needs
