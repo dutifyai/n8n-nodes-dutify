@@ -152,7 +152,8 @@ const statusOption: INodeProperties = {
 	displayName: 'Status Name or ID',
 	name: 'status',
 	type: 'options',
-	typeOptions: { loadOptionsMethod: 'getStatuses', loadOptionsDependsOn: ['list'] },
+	// Space too: two spaces can hold lists of the same name, with different statuses.
+	typeOptions: { loadOptionsMethod: 'getStatuses', loadOptionsDependsOn: ['space', 'list'] },
 	default: '',
 	description:
 		'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',

@@ -282,8 +282,11 @@ describe('task', () => {
 		});
 		expect(field(task, 'create', 'status')?.typeOptions).toMatchObject({
 			loadOptionsMethod: 'getStatuses',
-			loadOptionsDependsOn: ['list'],
 		});
+		// A space change must refresh the statuses: two spaces can hold lists of the same name.
+		expect(
+			[...((field(task, 'create', 'status')?.typeOptions?.loadOptionsDependsOn as string[]) ?? [])].sort(),
+		).toEqual(['list', 'space']);
 		expect(field(task, 'create', 'assignees')?.typeOptions).toMatchObject({
 			loadOptionsMethod: 'getMembers',
 		});

@@ -155,6 +155,27 @@ describe('workspace context loaders', () => {
 		expect(statusOptions(context, 'Nope')).toEqual([]);
 	});
 
+	it('statusOptions picks the list of the chosen space when two spaces have a list of that name', () => {
+		const twoSpaces = {
+			spaces: [
+				{ name: 'Alpha', lists: [{ name: 'Backlog', statuses: ['A open', 'A done'] }] },
+				{
+					name: 'Beta',
+					lists: [],
+					folders: [{ name: 'F', lists: [{ name: 'Backlog', statuses: ['B open'] }] }],
+				},
+			],
+		};
+		expect(statusOptions(twoSpaces, 'Backlog', 'Beta')).toEqual([
+			{ name: 'B open', value: 'B open' },
+		]);
+		expect(statusOptions(twoSpaces, 'Backlog', 'Alpha')).toEqual([
+			{ name: 'A open', value: 'A open' },
+			{ name: 'A done', value: 'A done' },
+		]);
+		expect(statusOptions(twoSpaces, 'Backlog', 'Gamma')).toEqual([]);
+	});
+
 	it('memberOptions uses the email as value (lite endpoints take assignee emails)', () => {
 		expect(memberOptions(context)).toEqual([
 			{ name: 'Alice A (alice@dutify.ai)', value: 'alice@dutify.ai' },
