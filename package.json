@@ -32,7 +32,8 @@
 			"dist/credentials/DutifyApi.credentials.js"
 		],
 		"nodes": [
-			"dist/nodes/Dutify/Dutify.node.js"
+			"dist/nodes/Dutify/Dutify.node.js",
+			"dist/nodes/DutifyTrigger/DutifyTrigger.node.js"
 		]
 	},
 	"devDependencies": {

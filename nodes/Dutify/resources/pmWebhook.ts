@@ -11,10 +11,10 @@ import {
 import { resolveTaskId } from '../../../shared/taskRefs';
 import { encodePath } from '../../../shared/transport';
 import type {
-	OperationContext,
 	OperationDef,
 	PaginationStyle,
 	ParamReader,
+	RequestSpec,
 	ResourceDef,
 } from '../../../shared/types';
 
@@ -103,7 +103,7 @@ const scopeSelector = (forUpdate: boolean): INodeProperties =>
 				description: SCOPE_DESCRIPTION,
 			};
 
-const scopeFields = (forUpdate: boolean): INodeProperties[] => [
+export const scopeFields = (forUpdate: boolean): INodeProperties[] => [
 	scopeSelector(forUpdate),
 	idPicker('Space Name or ID', 'scopeSpace', 'getSpaceIds', { field: 'scopeType', value: 'SPACE' }),
 	idPicker('Folder Name or ID', 'scopeFolder', 'getFolderIds', {
@@ -126,8 +126,8 @@ const scopeFields = (forUpdate: boolean): INodeProperties[] => [
 ];
 
 /** The scope part of a create or update body. A task key is resolved to its `tsk_` ID. */
-async function scopeBody(
-	ctx: OperationContext,
+export async function scopeBody(
+	request: (spec: RequestSpec) => Promise<unknown>,
 	p: ParamReader,
 	forUpdate: boolean,
 ): Promise<IDataObject> {
@@ -147,7 +147,7 @@ async function scopeBody(
 	}
 	const scopeEntityIdentifier =
 		scopeType === 'TASK'
-			? await resolveTaskId(async (spec) => await ctx.request(spec), target, p.workspace)
+			? await resolveTaskId(request, target, p.workspace)
 			: target;
 
 	return { scopeType, scopeEntityIdentifier };
@@ -199,7 +199,7 @@ const operations: OperationDef[] = [
 				secret: p.get<string>('secret'),
 				eventTypes,
 				...(isSet(fields.name) ? { name: fields.name } : {}),
-				...(await scopeBody(ctx, p, false)),
+				...(await scopeBody(async (spec) => await ctx.request(spec), p, false)),
 			};
 
 			return oneItem(await ctx.request({ method: 'POST', path: webhooksPath(p), body }));
@@ -291,7 +291,7 @@ const operations: OperationDef[] = [
 			if (Array.isArray(eventTypes) && eventTypes.length > 0) {
 				body.eventTypes = eventTypes;
 			}
-			Object.assign(body, await scopeBody(ctx, p, true));
+			Object.assign(body, await scopeBody(async (spec) => await ctx.request(spec), p, true));
 
 			return oneItem(
 				await ctx.request({ method: 'PUT', path: webhookPath(p), body: requireChange(body) }),
