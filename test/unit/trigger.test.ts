@@ -130,6 +130,29 @@ describe('PM webhook source', () => {
 		});
 	});
 
+	it('deactivates via PUT /mp/api/v1/workspaces/{ws}/webhooks/{id} with only { active: false }', () => {
+		const spec = pm.deactivate('whk_1', { workspace: 'ws 1' });
+		expect(spec).toEqual({
+			method: 'PUT',
+			path: '/mp/api/v1/workspaces/ws%201/webhooks/whk_1',
+			body: { active: false },
+		});
+		// Catalog UpdateWebhookRequest: every field is optional, so a partial body is valid.
+		const updateWebhookRequest = [
+			'url',
+			'secret',
+			'name',
+			'eventTypes',
+			'active',
+			'scopeType',
+			'scopeEntityIdentifier',
+			'clearScope',
+		];
+		for (const key of Object.keys(spec.body as IDataObject)) {
+			expect(updateWebhookRequest).toContain(key);
+		}
+	});
+
 	describe('findExisting', () => {
 		const rows = [
 			{ identifier: 'whk_1', url: 'https://other.example.com/hook' },
@@ -454,6 +477,50 @@ describe('create', () => {
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
 	});
 
+	/*
+	 * PM refuses to delete a webhook that ever delivered (409 ENTITY_IN_USE). Such a leftover is
+	 * paused (PUT active:false) and skipped, so re-activating a trigger that received events works.
+	 */
+	it('pauses a leftover at this URL that cannot be deleted (409), then registers', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			responses: [
+				[{ identifier: 'whk_used', url: HOOK_URL }],
+				httpError(409, 'Webhook has deliveries'),
+				{ identifier: 'whk_used', active: false },
+				{ identifier: 'whk_new' },
+			],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`DELETE ${LIST_PATH}/whk_used`,
+			`PUT ${LIST_PATH}/whk_used`,
+			`POST ${LIST_PATH}`,
+		]);
+		expect(calls[2].body).toEqual({ active: false });
+		expect(staticData.webhookId).toBe('whk_new');
+	});
+
+	it('pauses the stored webhook at this URL when it cannot be deleted (409), then registers', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			staticData: { webhookId: 'whk_old', secret: 'old', workspace: 'ws-1' },
+			responses: [
+				[{ identifier: 'whk_old', url: HOOK_URL }],
+				httpError(409, 'Webhook has deliveries'),
+				{ identifier: 'whk_old', active: false },
+				{ identifier: 'whk_new' },
+			],
+		});
+		await hooks.create.call(ctx);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`DELETE ${LIST_PATH}/whk_old`,
+			`PUT ${LIST_PATH}/whk_old`,
+			`POST ${LIST_PATH}`,
+		]);
+		expect(staticData.webhookId).toBe('whk_new');
+	});
+
 	it('surfaces a rejected create (e.g. plan limit) and stores nothing', async () => {
 		const { ctx, staticData } = hookContext({
 			responses: [[], httpError(400, 'Webhook limit reached for your plan')],
@@ -483,6 +550,30 @@ describe('delete', () => {
 		});
 		expect(await hooks.delete.call(ctx)).toBe(true);
 		expect(staticData).toEqual({});
+	});
+
+	it('pauses a webhook that cannot be deleted (409, it has deliveries) and clears the static data', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1' },
+			responses: [httpError(409, 'Webhook has deliveries'), { identifier: 'whk_1', active: false }],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`DELETE ${LIST_PATH}/whk_1`,
+			`PUT ${LIST_PATH}/whk_1`,
+		]);
+		expect(calls[1].body).toEqual({ active: false });
+		expect((calls[1].headers as IDataObject)['X-Dutify-Workspace']).toBe('ws-1');
+		expect(staticData).toEqual({});
+	});
+
+	it('reports failure when the 409 webhook cannot be paused either, keeping the static data', async () => {
+		const { ctx, staticData } = hookContext({
+			staticData: { webhookId: 'whk_1', secret: 'sek' },
+			responses: [httpError(409, 'Webhook has deliveries'), httpError(500, 'boom')],
+		});
+		expect(await hooks.delete.call(ctx)).toBe(false);
+		expect(staticData).toEqual({ webhookId: 'whk_1', secret: 'sek' });
 	});
 
 	it('reports failure on another error and keeps the static data so it can be retried', async () => {

@@ -17,6 +17,8 @@ export interface WebhookSource {
 	/** The id of a listed webhook delivering to `url` (and, when given, with that `id`), else null. */
 	findExisting(res: unknown, url: string, id?: string): string | null;
 	remove(id: string, cfg: IDataObject): RequestSpec;
+	/** Stops deliveries without deleting; used when the service refuses the delete. */
+	deactivate(id: string, cfg: IDataObject): RequestSpec;
 	/** Lowercase, as n8n hands over request headers. */
 	signatureHeader: string;
 }
@@ -61,6 +63,14 @@ const pm: WebhookSource = {
 	},
 	remove(id, cfg) {
 		return { method: 'DELETE', path: `${pmWebhooksPath(cfg)}/${encodeURIComponent(id)}` };
+	},
+	deactivate(id, cfg) {
+		// UpdateWebhookRequest: every field is optional, so this only switches the webhook off.
+		return {
+			method: 'PUT',
+			path: `${pmWebhooksPath(cfg)}/${encodeURIComponent(id)}`,
+			body: { active: false },
+		};
 	},
 	signatureHeader: 'x-webhook-signature-256',
 };

@@ -75,12 +75,14 @@ function paramReader(ctx: IHookFunctions, workspace: string): ParamReader {
 	};
 }
 
-const isNotFound = (error: unknown) =>
-	String((error as { httpCode?: unknown } | null)?.httpCode) === '404';
+const httpCodeOf = (error: unknown) =>
+	String((error as { httpCode?: unknown } | null)?.httpCode);
 
 /**
- * Deletes a webhook; one that is already gone counts as deleted. Any other failure is the
- * NodeApiError `dutifyRequest` already made, passed on as it is.
+ * Deletes a webhook; one that is already gone counts as deleted. PM refuses to delete a webhook
+ * that ever delivered (409 ENTITY_IN_USE); that one is paused (active: false) instead, so it
+ * stops delivering and the trigger can move on. Any other failure is the NodeApiError
+ * `dutifyRequest` already made, passed on as it is.
  */
 async function removeWebhook(
 	ctx: IHookFunctions,
@@ -88,9 +90,19 @@ async function removeWebhook(
 	id: string,
 	workspace: string,
 ): Promise<void> {
-	await dutifyRequest
-		.call(ctx, source.remove(id, { workspace }), workspace)
-		.catch(async (error: unknown) => (isNotFound(error) ? undefined : await Promise.reject(error)));
+	try {
+		await dutifyRequest.call(ctx, source.remove(id, { workspace }), workspace);
+	} catch (error) {
+		const code = httpCodeOf(error);
+		if (code === '404') {
+			return;
+		}
+		if (code !== '409') {
+			throw error;
+		}
+		ctx.logger?.warn(`Dutify kept webhook ${id} (it has deliveries); pausing it instead`);
+		await dutifyRequest.call(ctx, source.deactivate(id, { workspace }), workspace);
+	}
 }
 
 async function listWebhooks(
@@ -101,7 +113,7 @@ async function listWebhooks(
 	return await dutifyRequest.call(ctx, source.list({ workspace }), workspace);
 }
 
-/** The source settings of the create request. A task key scope is resolved to its `tsk_` ID. */
+/** The source settings of the create request. A task key scope is resolved to its task ID. */
 async function sourceConfig(ctx: IHookFunctions, workspace: string): Promise<IDataObject> {
 	const eventTypes = ctx.getNodeParameter('events', []) as string[];
 	if (!Array.isArray(eventTypes) || eventTypes.length === 0) {
