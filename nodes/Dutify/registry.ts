@@ -19,6 +19,7 @@ import { task, taskComment, taskRelationship } from './resources/task';
 import { savedFilter, taskSharing, timeEntry } from './resources/taskExtras';
 import { activityLog, notification, user } from './resources/userActivity';
 import { pmWebhook } from './resources/pmWebhook';
+import { bug, featureRequest } from './resources/roadmarq';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
@@ -52,6 +53,8 @@ export const resources: ResourceDef[] = [
 	codexumPage,
 	codexumSpace,
 	codexumAttachment,
+	featureRequest,
+	bug,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

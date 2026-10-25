@@ -285,6 +285,48 @@ export function boardOptions(
 	return (boards ?? []).map((b) => ({ name: b.name, value: b.slug }));
 }
 
+/** The request list pages from zero and the backend caps a page at 200. */
+const SHORT_ID_PAGE_SIZE = 200;
+
+export function requestsSpec(workspace: string, board: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/api/roadmarq/v1/boards/${board}/requests/lite`,
+		qs: { workspaceIdentifier: workspace, page: 0, size: SHORT_ID_PAGE_SIZE },
+	};
+}
+
+export function bugsSpec(workspace: string, board: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/api/roadmarq/v1/boards/${board}/bugs/lite`,
+		qs: { workspaceIdentifier: workspace },
+	};
+}
+
+type ShortIdRow = { shortId?: string; title?: string };
+
+function shortIdOptions(rows: ShortIdRow[] | null | undefined): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((r) => r.shortId)
+		.map((r) => ({
+			name: r.title ? `${r.shortId} - ${r.title}` : (r.shortId as string),
+			value: r.shortId as string,
+		}));
+}
+
+/** Requests come back wrapped in a page: `{content: [...]}`. */
+export function requestShortIdOptions(
+	page: { content?: ShortIdRow[] | null } | null | undefined,
+): INodePropertyOptions[] {
+	return shortIdOptions(page?.content);
+}
+
+/** Bugs come back as a plain array. */
+export function bugShortIdOptions(rows: ShortIdRow[] | null | undefined): INodePropertyOptions[] {
+	return shortIdOptions(rows);
+}
+
 /* ---------- views and dashboard widgets ---------- */
 
 /** One page of a scope's views, at the backend's maximum page size. */
@@ -958,6 +1000,32 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 		)) as Parameters<typeof wikiAttachmentOptions>[0];
 
 		return wikiAttachmentOptions(rows);
+	},
+	async getRequestShortIds(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const board = optionalParam(this, 'board');
+		if (!workspace || !board) {
+			return [];
+		}
+
+		return requestShortIdOptions(
+			(await dutifyRequest.call(this, requestsSpec(workspace, board), workspace)) as Parameters<
+				typeof requestShortIdOptions
+			>[0],
+		);
+	},
+	async getBugShortIds(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		const board = optionalParam(this, 'board');
+		if (!workspace || !board) {
+			return [];
+		}
+
+		return bugShortIdOptions(
+			(await dutifyRequest.call(this, bugsSpec(workspace, board), workspace)) as Parameters<
+				typeof bugShortIdOptions
+			>[0],
+		);
 	},
 	async getBoards(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);
