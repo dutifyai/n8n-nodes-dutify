@@ -4,6 +4,10 @@
 	"description": "n8n community node for Dutify (tasks, wiki, feature requests).",
 	"license": "MIT",
 	"homepage": "https://dutify.ai",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/dutifyai/n8n-nodes-dutify.git"
+	},
 	"keywords": [
 		"n8n-community-node-package"
 	],
