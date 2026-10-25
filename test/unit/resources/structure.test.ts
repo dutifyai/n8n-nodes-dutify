@@ -183,7 +183,7 @@ describe('customField', () => {
 		});
 	});
 
-	it('create turns comma-separated options into {value} objects with emoji and color', () => {
+	it('create turns comma-separated options into {value, orderIndex} objects with emoji and color', () => {
 		const spec = build(customField, 'create', {
 			scope: 'space',
 			scopeName: 'Engineering',
@@ -199,7 +199,12 @@ describe('customField', () => {
 			type: 'dropdown',
 			emoji: 'Flag',
 			color: '#4A90D9',
-			options: [{ value: 'High' }, { value: 'Low' }, { value: 'Medium' }],
+			// The backend answers 500 for an option without orderIndex (seen live 2026-10-25).
+			options: [
+				{ value: 'High', orderIndex: 0 },
+				{ value: 'Low', orderIndex: 1 },
+				{ value: 'Medium', orderIndex: 2 },
+			],
 		});
 	});
 

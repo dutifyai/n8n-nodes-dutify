@@ -307,7 +307,8 @@ const createCustomField: OperationDef = {
 		body.name = p.get<string>('name');
 		body.type = p.get<string>('type');
 		pick(fields, ['emoji', 'color'], body);
-		const options = splitList(fields.options).map((value) => ({ value }));
+		// orderIndex is optional in the catalog, but the backend fails (500) on an option without it.
+		const options = splitList(fields.options).map((value, orderIndex) => ({ value, orderIndex }));
 		if (options.length > 0) {
 			body.options = options;
 		}
