@@ -204,17 +204,10 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 	const paid = (name: string, body: (t: TestRecording) => Promise<void>) =>
 		withRecording(name, body, PROCESSING_TIMEOUT_MS, true)();
 
-	paid('regenerateSummary returns a new summary without saving it', async (t) => {
-		const [result] = await run('recording', 'regenerateSummary', {
-			recording: t.recording,
-			saveToDb: false,
-		});
-		expect(JSON.stringify(result)).toMatch(/Atlas|login|checklist/i);
-	});
-
-	// 2026-10-25, recording 4028 (processed upload): Hub refused with "Recording already has a
-	// workflow in progress :<workflow id>" although processing-status said processed. Reported to
-	// the Hub track; the assertion stays as the expected behaviour.
+	// Runs before Regenerate Summary. On 2026-10-25 it ran right after it (recording 4028) and Hub
+	// refused with "Recording already has a workflow in progress :<workflow id>", although
+	// processing-status said processed; the likely cause is the summary run still in progress.
+	// Not re-run since (one reprocess per run); the assertion stays as the expected behaviour.
 	paid('reprocess re-runs the pipeline and the recording ends processed again', async (t) => {
 		const [result] = await run('recording', 'reprocess', {
 			recording: t.recording,
@@ -222,6 +215,14 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 		});
 		expect(result).toBeTruthy();
 		await waitUntilProcessed(t.recording);
+	});
+
+	paid('regenerateSummary returns a new summary without saving it', async (t) => {
+		const [result] = await run('recording', 'regenerateSummary', {
+			recording: t.recording,
+			saveToDb: false,
+		});
+		expect(JSON.stringify(result)).toMatch(/Atlas|login|checklist/i);
 	});
 
 	// The FREE test workspace has a small Lens credit allowance; once it is spent, Hub answers
@@ -245,7 +246,13 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 				return;
 			}
 			expect(failure?.message).toBeUndefined();
-			expect(JSON.stringify(answer)).toMatch(/login|checklist/i);
+			// The recording's two action items: Sarah ships the mobile login fix by Wednesday, Alex
+			// sends the launch checklist by Friday. A real answer names both, from the recording.
+			const text = String(answer?.answer ?? '');
+			await ctx.annotate(`Lens answer: ${text}`);
+			expect(text.length).toBeGreaterThan(40);
+			expect(text).toMatch(/login/i);
+			expect(text).toMatch(/checklist/i);
 		},
 		PROCESSING_TIMEOUT_MS,
 		true,
