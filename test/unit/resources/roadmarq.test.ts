@@ -406,3 +406,40 @@ describe('bug', () => {
 		});
 	});
 });
+
+describe('name pickers', () => {
+	const loaderOf = (o: OperationDef, field: string, inCollection?: string) => {
+		const top = o.fields.find((f) => f.name === (inCollection ?? field));
+		const f = inCollection
+			? (top?.options as Array<{ name: string; typeOptions?: Record<string, unknown> }>).find(
+					(x) => x.name === field,
+				)
+			: top;
+
+		return {
+			loader: f?.typeOptions?.loadOptionsMethod,
+			deps: f?.typeOptions?.loadOptionsDependsOn,
+		};
+	};
+
+	it.each([
+		[fr('list'), 'status', 'filters', 'getRequestStatuses'],
+		[fr('list'), 'category', 'filters', 'getRequestCategories'],
+		[fr('list'), 'milestone', 'filters', 'getMilestones'],
+		[fr('create'), 'category', 'additionalFields', 'getRequestCategories'],
+		[fr('setStatus'), 'status', undefined, 'getRequestStatuses'],
+		[bg('list'), 'status', 'filters', 'getBugStatuses'],
+		[bg('list'), 'severity', 'filters', 'getSeverityLevels'],
+		[bg('create'), 'severity', 'additionalFields', 'getSeverityLevels'],
+		[bg('create'), 'productArea', 'additionalFields', 'getProductAreas'],
+		[bg('setStatus'), 'status', undefined, 'getBugStatuses'],
+	])('%# is a board-dependent picker', (o, field, collectionName, loader) => {
+		expect(loaderOf(o, field, collectionName)).toEqual({ loader, deps: ['board'] });
+	});
+
+	it('a typed status name still reaches the request', () => {
+		expect(
+			fr('setStatus').build!(reader({ shortId: 'FR-42', status: 'Some Custom Status' })).body,
+		).toEqual({ status: 'Some Custom Status' });
+	});
+});

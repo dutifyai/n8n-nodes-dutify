@@ -327,6 +327,85 @@ export function bugShortIdOptions(rows: ShortIdRow[] | null | undefined): INodeP
 	return shortIdOptions(rows);
 }
 
+/* ---------- roadmarq board-scoped names (statuses, categories, ...) ---------- */
+
+/** The non-lite board list carries the board UUID that the settings endpoints are addressed by. */
+export function boardIdsSpec(workspace: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: '/api/roadmarq/v1/boards',
+		qs: { workspaceIdentifier: workspace },
+	};
+}
+
+const BOARD_NAME_SEGMENTS = {
+	statuses: 'statuses',
+	categories: 'categories',
+	milestones: 'milestones',
+	severityLevels: 'severity-levels',
+	productAreas: 'product-areas',
+	bugStatuses: 'bug-status-levels',
+} as const;
+
+export type BoardNameKind = keyof typeof BOARD_NAME_SEGMENTS;
+
+export function boardNamesSpec(boardId: string, kind: BoardNameKind): RequestSpec {
+	return {
+		method: 'GET',
+		path: `${encodePath`/api/roadmarq/v1/boards/${boardId}`}/${BOARD_NAME_SEGMENTS[kind]}`,
+	};
+}
+
+/** The lite endpoints match status, category, milestone, severity and product area by name. */
+export function nameOptions(
+	rows: Array<{ name?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((r) => r.name)
+		.map((r) => ({ name: r.name as string, value: r.name as string }));
+}
+
+function isForbidden(error: unknown): boolean {
+	const e = error as { httpCode?: unknown; statusCode?: unknown } | null;
+
+	return String(e?.httpCode ?? e?.statusCode) === '403';
+}
+
+async function lookupNames(
+	fetch: (spec: RequestSpec) => Promise<unknown>,
+	workspace: string,
+	boardSlug: string,
+	kind: BoardNameKind,
+): Promise<INodePropertyOptions[]> {
+	const boards = (await fetch(boardIdsSpec(workspace))) as Array<{ id?: string; slug?: string }>;
+	const id = (boards ?? []).find((b) => b.slug === boardSlug)?.id;
+	if (!id) {
+		return [];
+	}
+
+	return nameOptions((await fetch(boardNamesSpec(id, kind))) as Parameters<typeof nameOptions>[0]);
+}
+
+/**
+ * Names of one kind for a board picked by slug: slug -> UUID through the board list, then the
+ * list itself. No board, an unknown slug, or a key without the scope (403) gives no options;
+ * the field still accepts a typed name.
+ */
+export async function loadBoardNames(
+	fetch: (spec: RequestSpec) => Promise<unknown>,
+	workspace: string,
+	boardSlug: string,
+	kind: BoardNameKind,
+): Promise<INodePropertyOptions[]> {
+	if (!workspace || !boardSlug) {
+		return [];
+	}
+	return await lookupNames(fetch, workspace, boardSlug, kind).catch((error: unknown) =>
+		// Already a NodeApiError from the transport; a forbidden scope just means no suggestions.
+		isForbidden(error) ? [] : Promise.reject(error),
+	);
+}
+
 /* ---------- views and dashboard widgets ---------- */
 
 /** One page of a scope's views, at the backend's maximum page size. */
@@ -708,6 +787,17 @@ async function loadWikiPages(ctx: ILoadOptionsFunctions) {
 	>[0];
 }
 
+async function boardNames(ctx: ILoadOptionsFunctions, kind: BoardNameKind) {
+	const workspace = selectedWorkspace(ctx);
+
+	return await loadBoardNames(
+		async (spec) => await dutifyRequest.call(ctx, spec, workspace),
+		workspace,
+		optionalParam(ctx, 'board'),
+		kind,
+	);
+}
+
 export const listSearch: NonNullable<NonNullable<INodeType['methods']>['listSearch']> = {
 	async searchWorkspaces(
 		this: ILoadOptionsFunctions,
@@ -1026,6 +1116,24 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 				typeof bugShortIdOptions
 			>[0],
 		);
+	},
+	async getRequestStatuses(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'statuses');
+	},
+	async getRequestCategories(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'categories');
+	},
+	async getMilestones(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'milestones');
+	},
+	async getSeverityLevels(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'severityLevels');
+	},
+	async getProductAreas(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'productAreas');
+	},
+	async getBugStatuses(this: ILoadOptionsFunctions) {
+		return await boardNames(this, 'bugStatuses');
 	},
 	async getBoards(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);

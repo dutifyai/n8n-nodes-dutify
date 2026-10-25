@@ -33,10 +33,6 @@ const REQUEST_PAGING: PaginationStyle = {
 const boardField = (): INodeProperties =>
 	idPicker('Board Name or ID', 'board', 'getBoards', undefined);
 
-/**
- * On single-item operations the board is not part of any request. It only narrows the short-ID
- * list, so it is optional: a short ID typed through an expression works without it.
- */
 /** An optional picker; the description is completed with the standard expression hint. */
 const optionalPicker = (
 	displayName: string,
@@ -52,6 +48,10 @@ const optionalPicker = (
 	description: `${description}. ${EXPRESSION_HINT}.`,
 });
 
+/**
+ * On single-item operations the board is not part of any request. It only narrows the short-ID
+ * list, so it is optional: a short ID typed through an expression works without it.
+ */
 const narrowingBoardField = (): INodeProperties =>
 	optionalPicker(
 		'Board Name or ID',
@@ -102,8 +102,29 @@ const actionField = (): INodeProperties => ({
 	description: 'Moderation decision for the item',
 });
 
-const statusField = (description: string): INodeProperties => ({
-	...text('Status', 'status', description),
+const NAME_NOTE =
+	'Matched by name, ignoring case and surrounding spaces. An unknown name is rejected with the valid options.';
+
+const LIST_NOTE =
+	'The list needs a board and a key allowed to read board settings; otherwise it is empty and a name can still be set with an expression.';
+
+/** A name field that offers the board's names when they can be listed. */
+const namePicker = (
+	displayName: string,
+	name: string,
+	loader: string,
+	description: string,
+): INodeProperties => ({
+	displayName,
+	name,
+	type: 'options',
+	typeOptions: { loadOptionsMethod: loader, loadOptionsDependsOn: ['board'] },
+	default: '',
+	description: `${description}. ${NAME_NOTE} ${LIST_NOTE} ${EXPRESSION_HINT}.`,
+});
+
+const statusField = (loader: string, description: string): INodeProperties => ({
+	...namePicker('Status', 'status', loader, description),
 	required: true,
 });
 
@@ -155,9 +176,6 @@ const boardRequests = (p: ParamReader) =>
 const boardBugs = (p: ParamReader) =>
 	encodePath`/api/roadmarq/v1/boards/${str(p, 'board')}/bugs/lite`;
 
-const NAME_NOTE =
-	'Matched by name, ignoring case and surrounding spaces. An unknown name is rejected with the valid options.';
-
 /* ---------- feature requests ---------- */
 
 const requestOperations: OperationDef[] = [
@@ -171,13 +189,23 @@ const requestOperations: OperationDef[] = [
 			boardField(),
 			collection('Filters', 'filters', [
 				{
-					...text('Status', 'status', `Only requests in this status. ${NAME_NOTE}`),
+					...namePicker('Status', 'status', 'getRequestStatuses', 'Only requests in this status'),
 				},
 				{
-					...text('Category', 'category', `Only requests in this category. ${NAME_NOTE}`),
+					...namePicker(
+						'Category',
+						'category',
+						'getRequestCategories',
+						'Only requests in this category',
+					),
 				},
 				{
-					...text('Milestone', 'milestone', `Only requests in this milestone. ${NAME_NOTE}`),
+					...namePicker(
+						'Milestone',
+						'milestone',
+						'getMilestones',
+						'Only requests in this milestone',
+					),
 				},
 				{
 					...text(
@@ -222,7 +250,7 @@ const requestOperations: OperationDef[] = [
 			titleField(),
 			collection('Additional Fields', 'additionalFields', [
 				text('Description', 'description', 'Request body, plain text or Markdown'),
-				text('Category', 'category', `Category of the request. ${NAME_NOTE}`),
+				namePicker('Category', 'category', 'getRequestCategories', 'Category of the request'),
 			]),
 		],
 		build: (p) => ({
@@ -243,7 +271,7 @@ const requestOperations: OperationDef[] = [
 		fields: [
 			narrowingBoardField(),
 			requestIdField(),
-			statusField(`Name of the status to set, for example In Progress. ${NAME_NOTE}`),
+			statusField('getRequestStatuses', 'Name of the status to set, for example In Progress'),
 		],
 		build: (p) => byShortId(p, REQUESTS, 'PATCH', '/status', { status: str(p, 'status') }),
 	},
@@ -331,8 +359,8 @@ const bugOperations: OperationDef[] = [
 		fields: [
 			boardField(),
 			collection('Filters', 'filters', [
-				text('Severity', 'severity', `Only bugs of this severity. ${NAME_NOTE}`),
-				text('Status', 'status', `Only bugs in this status. ${NAME_NOTE}`),
+				namePicker('Severity', 'severity', 'getSeverityLevels', 'Only bugs of this severity'),
+				namePicker('Status', 'status', 'getBugStatuses', 'Only bugs in this status'),
 			]),
 		],
 		build: (p) => ({
@@ -358,8 +386,8 @@ const bugOperations: OperationDef[] = [
 			boardField(),
 			titleField(),
 			collection('Additional Fields', 'additionalFields', [
-				text('Severity', 'severity', `Severity level. ${NAME_NOTE}`),
-				text('Product Area', 'productArea', `Product area. ${NAME_NOTE}`),
+				namePicker('Severity', 'severity', 'getSeverityLevels', 'Severity level'),
+				namePicker('Product Area', 'productArea', 'getProductAreas', 'Product area'),
 				text('Steps to Reproduce', 'stepsToReproduce', 'How to reproduce the bug'),
 				text('Expected Result', 'expectedResult', 'What should happen'),
 				text('Actual Result', 'actualResult', 'What happens instead'),
@@ -405,7 +433,7 @@ const bugOperations: OperationDef[] = [
 		fields: [
 			narrowingBoardField(),
 			bugIdField(),
-			statusField(`Name of the bug status to set, for example Triaged. ${NAME_NOTE}`),
+			statusField('getBugStatuses', 'Name of the bug status to set, for example Triaged'),
 		],
 		build: (p) => byShortId(p, BUGS, 'PATCH', '/status', { status: str(p, 'status') }),
 	},
@@ -423,7 +451,6 @@ const bugOperations: OperationDef[] = [
 				'getMembers',
 				'Workspace member to assign, by email. Leave this and Assignee ID empty to unassign',
 			),
-
 			text(
 				'Assignee ID',
 				'assigneeId',
