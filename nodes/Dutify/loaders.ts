@@ -9,7 +9,7 @@ import type {
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 import { resolveTaskId } from '../../shared/taskRefs';
 import { dutifyRequest, encodePath } from '../../shared/transport';
-import type { RequestSpec } from '../../shared/types';
+import type { HubWebhookRow, RequestSpec } from '../../shared/types';
 import { fetchAccessibleWorkspaces, type Fetch } from '../../shared/workspaces';
 
 /* ---------- workspaces ---------- */
@@ -795,14 +795,6 @@ export function hubRecordingOptions(rows: HubCallRow[] | null | undefined): INod
 }
 
 /* ---------- Hub meeting webhooks ---------- */
-
-interface HubWebhookRow {
-	id?: number;
-	name?: string | null;
-	url?: string;
-	/** UserWebhookDTO's on/off flag. */
-	enabled?: boolean;
-}
 
 /** The caller's webhooks; Hub shows a key only those bound to the X-Dutify-Workspace workspace. */
 export function hubWebhooksSpec(): RequestSpec {

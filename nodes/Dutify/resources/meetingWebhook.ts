@@ -169,7 +169,9 @@ const operations: OperationDef[] = [
 			webhookField(),
 			collection('Update Fields', 'updateFields', [
 				text('URL', 'url', 'The new public https:// endpoint'),
-				secretField('The new signing key'),
+				secretField(
+					'The new signing key. Leave it empty to keep the current one; a secret cannot be removed here, so deliveries stay signed.',
+				),
 				text('Name', 'name', 'A new label (up to 100 characters)'),
 				updateSectionsField,
 				activeOption('Whether the webhook delivers meetings. Turn it off to pause it.'),

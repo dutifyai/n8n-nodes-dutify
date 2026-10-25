@@ -249,7 +249,8 @@ async function runOperation(
 
 				return { content, size: meta.fileSize, mimeType: binary.mimeType, fileName };
 			}
-			// Default (memory) mode: the bytes are already in the item, as base64.
+			// No id: the bytes travel in the item itself, as base64 (n8n 1.x memory mode, or a
+			// binary a node built in place), so they are already in memory.
 			const data = Buffer.from(binary.data, BINARY_ENCODING);
 
 			return { content: data, size: data.length, mimeType: binary.mimeType, fileName };

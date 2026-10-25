@@ -47,6 +47,15 @@ export interface ParamReader {
 	get<T = unknown>(name: string, fallback?: T): T;
 }
 
+/** A row of Hub's GET /api/user/webhooks (UserWebhookDTO), as far as the node reads it. */
+export interface HubWebhookRow {
+	id?: number | string;
+	name?: string | null;
+	url?: string;
+	/** UserWebhookDTO's on/off flag. */
+	enabled?: boolean;
+}
+
 /** The stream n8n hands out for stored binary data (a Node Readable). */
 export type ByteStream = Awaited<ReturnType<IExecuteFunctions['helpers']['getBinaryStream']>>;
 

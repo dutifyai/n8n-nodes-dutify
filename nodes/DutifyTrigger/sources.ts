@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject } from 'n8n-workflow';
 import { encodePath } from '../../shared/transport';
-import type { RequestSpec } from '../../shared/types';
+import type { HubWebhookRow, RequestSpec } from '../../shared/types';
 
 /**
  * One Dutify service the trigger can subscribe to. `cfg` carries the selected `workspace` and the
@@ -113,13 +113,6 @@ const pm: WebhookSource = {
 	},
 	signatureHeader: 'x-webhook-signature-256',
 };
-
-interface HubWebhookRow {
-	id?: number | string;
-	url?: string;
-	/** UserWebhookDTO's on/off flag. */
-	enabled?: boolean;
-}
 
 const HUB_HOOKS = '/api/user/webhooks';
 
