@@ -287,6 +287,120 @@ export function sprintOptions(groups: SprintGroupRow[] | null | undefined): INod
 	);
 }
 
+/* ---------- teams, members, invitations, access levels, import jobs ---------- */
+
+/** The backend caps every page at 100. */
+const PICKER_PAGE_SIZE = 100;
+/** A picker stops after this many pages of members, so a huge workspace cannot stall the editor. */
+const MAX_MEMBER_PAGES = 20;
+
+export function teamsSpec(workspace: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/workspaces/${workspace}/teams`,
+		qs: { size: PICKER_PAGE_SIZE },
+	};
+}
+
+export function teamOptions(
+	teams: Array<{ identifier?: string; name?: string; alias?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (teams ?? [])
+		.filter((t) => t.identifier)
+		.map((t) => {
+			const label = t.name ?? (t.identifier as string);
+
+			return { name: t.alias ? `${label} (${t.alias})` : label, value: t.identifier as string };
+		});
+}
+
+export function workspaceUsersSpec(workspace: string, page: number): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/workspaces/${workspace}/users`,
+		qs: { page, size: PICKER_PAGE_SIZE },
+	};
+}
+
+interface WorkspaceUserRow {
+	userUuid?: string;
+	user?: { fullName?: string | null; email?: string | null } | null;
+}
+
+/** Team and member endpoints take a user UUID, which the workspace context does not carry. */
+export function workspaceUserOptions(
+	users: WorkspaceUserRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return (users ?? [])
+		.filter((u) => u.userUuid)
+		.map((u) => {
+			const email = u.user?.email ?? '';
+			const fullName = u.user?.fullName ?? '';
+			const label = fullName ? `${fullName} (${email})` : email || (u.userUuid as string);
+
+			return { name: label, value: u.userUuid as string };
+		});
+}
+
+export function invitationsSpec(workspace: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/workspaces/${workspace}/invitations` };
+}
+
+export function invitationOptions(
+	invitations:
+		| Array<{ identifier?: string; invitedEmail?: string; status?: string }>
+		| null
+		| undefined,
+): INodePropertyOptions[] {
+	return (invitations ?? [])
+		.filter((i) => i.identifier)
+		.map((i) => {
+			const label = i.invitedEmail ?? (i.identifier as string);
+
+			return { name: i.status ? `${label} (${i.status})` : label, value: i.identifier as string };
+		});
+}
+
+export function accessLevelsSpec(workspace: string): RequestSpec {
+	return { method: 'GET', path: encodePath`/mp/api/v1/workspaces/${workspace}/access-levels` };
+}
+
+/** Roles are the workspace's own access levels, so the numeric id is the value. */
+export function accessLevelOptions(
+	levels: Array<{ id?: number; name?: string; description?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (levels ?? [])
+		.filter((l) => l.id !== undefined && l.id !== null)
+		.map((l) => ({
+			name: l.name ?? String(l.id),
+			value: l.id as number,
+			...(l.description ? { description: l.description } : {}),
+		}));
+}
+
+export function importJobsSpec(workspace: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/workspaces/${workspace}/import`,
+		qs: { pageSize: PICKER_PAGE_SIZE },
+	};
+}
+
+export function importJobOptions(
+	jobs:
+		| Array<{ identifier?: string; fileName?: string; source?: string; status?: string }>
+		| null
+		| undefined,
+): INodePropertyOptions[] {
+	return (jobs ?? [])
+		.filter((j) => j.identifier)
+		.map((j) => {
+			const label = j.fileName ?? `${j.source ?? 'Platform'} import ${j.identifier}`;
+
+			return { name: j.status ? `${label} (${j.status})` : label, value: j.identifier as string };
+		});
+}
+
 /** Which field of the view scope fields holds the target identifier, per scope. */
 const SCOPE_TARGET_PARAM: Record<string, string> = {
 	space: 'scopeSpaceId',
@@ -405,6 +519,74 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getSprints(this: ILoadOptionsFunctions) {
 		return sprintOptions(await loadSprintGroups(this));
+	},
+	async getTeams(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return teamOptions(
+			(await dutifyRequest.call(this, teamsSpec(workspace), workspace)) as Parameters<
+				typeof teamOptions
+			>[0],
+		);
+	},
+	async getMemberIds(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+		const options: INodePropertyOptions[] = [];
+		for (let page = 0; page < MAX_MEMBER_PAGES; page++) {
+			const response = (await dutifyRequest.call(
+				this,
+				workspaceUsersSpec(workspace, page),
+				workspace,
+			)) as { users?: WorkspaceUserRow[] | null; totalPages?: number } | null;
+			options.push(...workspaceUserOptions(response?.users));
+			if (page + 1 >= (response?.totalPages ?? 0)) {
+				break;
+			}
+		}
+
+		return options;
+	},
+	async getInvitations(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return invitationOptions(
+			(await dutifyRequest.call(this, invitationsSpec(workspace), workspace)) as Parameters<
+				typeof invitationOptions
+			>[0],
+		);
+	},
+	async getAccessLevels(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return accessLevelOptions(
+			(await dutifyRequest.call(this, accessLevelsSpec(workspace), workspace)) as Parameters<
+				typeof accessLevelOptions
+			>[0],
+		);
+	},
+	async getImportJobs(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return importJobOptions(
+			(await dutifyRequest.call(this, importJobsSpec(workspace), workspace)) as Parameters<
+				typeof importJobOptions
+			>[0],
+		);
 	},
 	async getStatuses(this: ILoadOptionsFunctions) {
 		const space = optionalParam(this, 'space');

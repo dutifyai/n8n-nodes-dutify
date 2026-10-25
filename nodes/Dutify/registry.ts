@@ -9,6 +9,7 @@ import { ApplicationError, NodeApiError, NodeOperationError } from 'n8n-workflow
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyRequest } from '../../shared/transport';
+import { importJob, invitation, member, team } from './resources/admin';
 import { customField, folder, list, space, tag } from './resources/structure';
 import { sprint } from './resources/sprint';
 import { task, taskComment, taskRelationship } from './resources/task';
@@ -30,6 +31,10 @@ export const resources: ResourceDef[] = [
 	tag,
 	view,
 	sprint,
+	team,
+	member,
+	invitation,
+	importJob,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

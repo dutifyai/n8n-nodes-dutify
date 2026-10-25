@@ -21,6 +21,16 @@ import {
 	sprintGroupsSpec,
 	sprintOptions,
 	viewsSpec,
+	teamOptions,
+	teamsSpec,
+	workspaceUserOptions,
+	workspaceUsersSpec,
+	invitationOptions,
+	invitationsSpec,
+	accessLevelOptions,
+	accessLevelsSpec,
+	importJobOptions,
+	importJobsSpec,
 	widgetOptions,
 	widgetsSpec,
 } from '../../nodes/Dutify/loaders';
@@ -327,5 +337,100 @@ describe('sprint pickers', () => {
 			{ name: 'Frontend Team / Sprint 14 (IN_PROGRESS)', value: 'spr_2' },
 		]);
 		expect(sprintOptions(undefined)).toEqual([]);
+	});
+});
+
+describe('team, member, invitation, access level and import job pickers', () => {
+	it('teamOptions: {name, value: identifier}', () => {
+		expect(
+			teamOptions([
+				{ identifier: 'team_1', name: 'Backend Engineers', alias: 'backend' },
+				{ name: 'No id' },
+			]),
+		).toEqual([{ name: 'Backend Engineers (backend)', value: 'team_1' }]);
+		expect(teamOptions(null)).toEqual([]);
+	});
+
+	it('workspaceUserOptions: user UUIDs labelled with name and e-mail', () => {
+		expect(
+			workspaceUserOptions([
+				{ userUuid: 'u-1', user: { fullName: 'Jane Smith', email: 'jane@example.com' } },
+				{ userUuid: 'u-2', user: { email: 'bob@example.com' } },
+				{ userUuid: 'u-3' },
+				{ user: { email: 'orphan@example.com' } },
+			]),
+		).toEqual([
+			{ name: 'Jane Smith (jane@example.com)', value: 'u-1' },
+			{ name: 'bob@example.com', value: 'u-2' },
+			{ name: 'u-3', value: 'u-3' },
+		]);
+		expect(workspaceUserOptions(undefined)).toEqual([]);
+	});
+
+	it('workspaceUsersSpec: one page of members at the backend maximum of 100', () => {
+		expect(workspaceUsersSpec('ws-1', 2)).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/users',
+			qs: { page: 2, size: 100 },
+		});
+	});
+
+	it('invitationOptions: pending invitations as e-mail, value identifier', () => {
+		expect(
+			invitationOptions([
+				{ identifier: 'inv-1', invitedEmail: 'jane@example.com', status: 'PENDING' },
+				{ identifier: 'inv-2' },
+			]),
+		).toEqual([
+			{ name: 'jane@example.com (PENDING)', value: 'inv-1' },
+			{ name: 'inv-2', value: 'inv-2' },
+		]);
+		expect(invitationOptions(null)).toEqual([]);
+	});
+
+	it('accessLevelOptions: workspace access levels by name, value id', () => {
+		expect(
+			accessLevelOptions([
+				{ id: 1, name: 'Admin', description: 'Everything' },
+				{ id: 2, name: 'Member' },
+				{ name: 'No id' },
+			]),
+		).toEqual([
+			{ name: 'Admin', value: 1, description: 'Everything' },
+			{ name: 'Member', value: 2 },
+		]);
+	});
+
+	it('importJobOptions: file name, source and status, value identifier', () => {
+		expect(
+			importJobOptions([
+				{ identifier: 'imp_1', fileName: 'tasks.csv', source: 'CSV', status: 'PREVIEW' },
+				{ identifier: 'imp_2', source: 'JIRA', status: 'COMPLETED' },
+			]),
+		).toEqual([
+			{ name: 'tasks.csv (PREVIEW)', value: 'imp_1' },
+			{ name: 'JIRA import imp_2 (COMPLETED)', value: 'imp_2' },
+		]);
+	});
+
+	it('specs: teams, invitations, access levels and import jobs', () => {
+		expect(teamsSpec('ws-1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/teams',
+			qs: { size: 100 },
+		});
+		expect(invitationsSpec('ws-1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/invitations',
+		});
+		expect(accessLevelsSpec('ws-1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/access-levels',
+		});
+		expect(importJobsSpec('ws-1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/import',
+			qs: { pageSize: 100 },
+		});
 	});
 });
