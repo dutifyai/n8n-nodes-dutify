@@ -67,7 +67,10 @@ fails with a 400, and the n8n error lists the valid options.
    already delivered (see Known gaps).
 
 n8n must be reachable from the internet for deliveries to arrive. Self-hosted instances need
-`WEBHOOK_URL` set to their public URL.
+`WEBHOOK_URL` set to their public URL. If you change `WEBHOOK_URL` later, the trigger registers
+a new webhook at the new URL and leaves the old one registered at the old URL, where it keeps
+counting against the plan's webhook limit. Remove or pause the old one in Dutify (PM Webhook →
+Delete, or Update with Active off).
 
 ## Known gaps
 
