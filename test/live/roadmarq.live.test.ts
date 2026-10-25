@@ -16,14 +16,10 @@ import {
  * The node has no board operations, so the board is created and deleted with the Roadmarq board
  * endpoints directly (POST / DELETE /api/roadmarq/v1/boards). Everything else goes through the node.
  */
-/**
- * Cleanup for one request or bug. Roadmarq answers a short ID that no longer exists with 400
- * "shortId '<id>' not found." (not 404), so exactly that answer, naming this item, means gone.
- */
+/** Cleanup for one request or bug; a 404 means a test already deleted it. */
 const deleteItem = (resource: 'featureRequest' | 'bug', shortId: string) => async () => {
 	await runOne(resource, 'delete', { shortId }).catch(async (error: unknown) => {
-		const e = error as NodeApiError;
-		if (e.httpCode === '400' && e.message.includes(`shortId '${shortId}' not found`)) {
+		if ((error as NodeApiError).httpCode === '404') {
 			return undefined;
 		}
 
@@ -148,14 +144,15 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 			additionalFields: { isInternal: true },
 		});
 		expect(comment).toMatchObject({ content: `Live comment ${runId}`, internal: true });
-		// userVoted in the detail stays false for API-key callers, so the count is what is checked.
-		const votes = async () =>
-			Number((await runOne('featureRequest', 'get', { shortId: request })).voteCount);
-		const before = await votes();
+		const detail = async () => await runOne('featureRequest', 'get', { shortId: request });
+		const before = await detail();
 		await runOne('featureRequest', 'vote', { shortId: request });
-		expect(await votes()).toBe(before + 1);
+		expect(await detail()).toMatchObject({
+			voteCount: Number(before.voteCount) + 1,
+			userVoted: true,
+		});
 		await runOne('featureRequest', 'vote', { shortId: request });
-		expect(await votes()).toBe(before);
+		expect(await detail()).toMatchObject({ voteCount: Number(before.voteCount), userVoted: false });
 		expect(await runOne('featureRequest', 'moderate', { shortId: request, action: 'approve' })).toMatchObject(
 			{ shortId: request },
 		);
@@ -241,21 +238,14 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 		expect(created).toMatchObject({ security: true, public: false, severity: 'Critical' });
 	});
 
-	/*
-	 * BACKEND BUG (Roadmarq lite short-ID lookup): the catalog promises 404 "No request/bug matches
-	 * the short ID", production answers 400 BAD_REQUEST "shortId 'NBG-1' not found." So the
-	 * delete check accepts the 400 and a tripwire pins the 404 the contract promises.
-	 */
-	it('delete removes the request and the bug (get then refuses the short ID)', async () => {
+	it('delete removes the request and the bug (get then answers 404)', async () => {
 		await runOne('bug', 'delete', { shortId: bugId });
-		const bugGone = await runError('bug', 'get', { shortId: bugId });
-		expect(bugGone.message).toContain('not found');
+		expect((await runError('bug', 'get', { shortId: bugId })).httpCode).toBe('404');
 		await runOne('featureRequest', 'delete', { shortId: request });
-		const requestGone = await runError('featureRequest', 'get', { shortId: request });
-		expect(requestGone.message).toContain('not found');
+		expect((await runError('featureRequest', 'get', { shortId: request })).httpCode).toBe('404');
 	});
 
-	it.fails('an unknown short ID answers 404 as the catalog says (fails in production, see above)', async () => {
+	it('an unknown short ID answers 404 as the catalog says', async () => {
 		expect((await runError('featureRequest', 'get', { shortId: 'NFR-999999' })).httpCode).toBe('404');
 	});
 });

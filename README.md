@@ -93,7 +93,7 @@ Delete, or Update with Active off).
   wiki page sharing are refused, there is one extra dashboard, some widgets are PRO only, and
   there is one wiki space.
 - **Roadmarq:** a new bug waits in the moderation queue and only appears in board lists after it
-  is approved (Bug → Moderate). An unknown short ID currently answers 400 rather than 404.
+  is approved (Bug → Moderate).
 - **Hub:** API keys cannot upload recordings, so Recording and Lens act on existing calls only.
 
 ## Development
