@@ -181,7 +181,12 @@ liveDescribe('PM webhook — live', () => {
 		expect(error.description).toContain('ENTITY_IN_USE');
 	});
 
-	it.fails('delete of a webhook with deliveries succeeds (fails in production, see above)', async () => {
+	it.fails('delete of a webhook with deliveries succeeds (fails in production, see above)', async ({
+		skip,
+	}) => {
+		if (!fixture) {
+			skip('no fixture webhook');
+		}
 		expect(await runOne('pmWebhook', 'delete', { webhook: fixture })).toEqual({ success: true });
 	});
 });
