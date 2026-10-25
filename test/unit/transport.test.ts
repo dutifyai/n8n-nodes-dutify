@@ -64,6 +64,14 @@ describe('buildHttpOptions', () => {
 	});
 });
 
+describe('buildHttpOptions timeout', () => {
+	it('passes spec.timeout through, and sets none otherwise', () => {
+		const base = { method: 'POST' as const, path: '/api/lens/chat' };
+		expect(buildHttpOptions('https://dutify.ai', { ...base, timeout: 120000 }, '').timeout).toBe(120000);
+		expect(buildHttpOptions('https://dutify.ai', base, '')).not.toHaveProperty('timeout');
+	});
+});
+
 describe('toNodeError', () => {
 	it('shows the Dutify message as message, and code + field + validOptions in the description', () => {
 		const err = toNodeError(node, {

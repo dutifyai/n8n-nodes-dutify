@@ -14,6 +14,8 @@ export interface RequestSpec {
 	/** Query string. `undefined`, `null` and `''` values are dropped before sending. */
 	qs?: IDataObject;
 	body?: IDataObject | IDataObject[];
+	/** Request timeout in milliseconds, for slow endpoints such as Lens. Omitted: the HTTP client default. */
+	timeout?: number;
 	/** Present only on list operations. */
 	paginate?: PaginationStyle;
 }

@@ -741,6 +741,66 @@ export function pmWebhookDeliveryOptions(
 		});
 }
 
+/* ---------- Hub calls and recordings ---------- */
+
+interface HubCallRow {
+	id?: number;
+	call?: {
+		name?: string;
+		startTime?: string;
+		recordings?: Array<{ id?: number; nameShortTranscription?: string }>;
+	};
+}
+
+/**
+ * The most recent calls, newest first. `/usercall/all` has no light projection and returns every
+ * transcript, so this asks the search (empty query = the same list, same order) for `view=lite`.
+ */
+export function hubCallsSpec(): RequestSpec {
+	return {
+		method: 'GET',
+		path: '/api/usercall/search',
+		qs: { query: '', view: 'lite', page: 0, size: PICKER_PAGE_SIZE },
+	};
+}
+
+const dayOf = (startTime: string | undefined) => (startTime ? ` (${startTime.slice(0, 10)})` : '');
+
+export function hubCallOptions(rows: HubCallRow[] | null | undefined): INodePropertyOptions[] {
+	return (rows ?? [])
+		.filter((r) => r.id !== undefined && r.id !== null)
+		.map((r) => {
+			const title = r.call?.name || r.call?.recordings?.[0]?.nameShortTranscription;
+
+			return {
+				name: title ? `${title}${dayOf(r.call?.startTime)}` : `Call ${r.id}`,
+				value: String(r.id),
+			};
+		});
+}
+
+export function hubRecordingOptions(rows: HubCallRow[] | null | undefined): INodePropertyOptions[] {
+	return (rows ?? []).flatMap((r) =>
+		(r.call?.recordings ?? [])
+			.filter((rec) => rec.id !== undefined && rec.id !== null)
+			.map((rec) => {
+				const title = [r.call?.name, rec.nameShortTranscription].filter(Boolean).join(' - ');
+
+				return {
+					name: title ? `${title}${dayOf(r.call?.startTime)}` : `Recording ${rec.id}`,
+					value: String(rec.id),
+				};
+			}),
+	);
+}
+
+/** A key without the scope (403) just gets no suggestions; the field still takes an expression. */
+async function orNoneWhenForbidden<T>(load: () => Promise<T[]>): Promise<T[]> {
+	return await load().catch((error: unknown) =>
+		isForbidden(error) ? [] : Promise.reject(error),
+	);
+}
+
 /* ---------- n8n wiring ---------- */
 
 function selectedWorkspace(ctx: ILoadOptionsFunctions): string {
@@ -1134,6 +1194,28 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getBugStatuses(this: ILoadOptionsFunctions) {
 		return await boardNames(this, 'bugStatuses');
+	},
+	async getHubCalls(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+
+		return await orNoneWhenForbidden(async () =>
+			hubCallOptions(
+				(await dutifyRequest.call(this, hubCallsSpec(), workspace)) as Parameters<
+					typeof hubCallOptions
+				>[0],
+			),
+		);
+	},
+	async getHubRecordings(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+
+		return await orNoneWhenForbidden(async () =>
+			hubRecordingOptions(
+				(await dutifyRequest.call(this, hubCallsSpec(), workspace)) as Parameters<
+					typeof hubRecordingOptions
+				>[0],
+			),
+		);
 	},
 	async getBoards(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);
