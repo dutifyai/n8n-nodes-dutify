@@ -14,13 +14,21 @@ The package has no runtime dependencies.
 In n8n, open **Settings → Community Nodes → Install**, enter `n8n-nodes-dutify`, and confirm.
 Both nodes then show up in the node panel under "Dutify".
 
+> The package is not published to npm yet. Until it is, the install above will not find it.
+
 ## Credential: a personal API key
 
 The nodes authenticate with a Dutify **personal API key** (it starts with `du_live_`).
 
-1. Create the key in Dutify under **API access → Personal API keys**. You can also create it
-   through the API: `POST https://dutify.ai/mp/api/v1/personal-api-keys` with `{"name": "n8n"}`,
-   signed in as yourself. The key is shown once, so copy it then.
+1. In Dutify Project Management, open **Settings → Personal API keys**
+   (`https://cloud.dutify.ai/manage/settings/personal-api-keys`) and create a key. The key is
+   shown once, so copy it then.
+   - **Access:** choose **All my permissions** (the default). The nodes cover Project
+     Management, Codexum, Roadmarq and Hub, so they need every scope of those products. A
+     **Read only** key or a key with chosen scopes works only for the operations those scopes
+     allow; the rest fail with 403.
+   - The key never grants more than your own membership: it works in the workspaces and
+     products you already belong to.
 2. In n8n, add a **Dutify API** credential and paste the key. Leave **Base URL** at
    `https://dutify.ai` unless you run another Dutify instance.
 3. Save. n8n tests the credential against `GET /mp/api/v1/api-keys/current`.
@@ -55,7 +63,8 @@ fails with a 400, and the n8n error lists the valid options.
 3. Every delivery is checked against its `X-Webhook-Signature-256` header (`sha256=` HMAC-SHA256 of the raw body with
    that secret). A delivery that fails the check is answered with 401 and does not start the
    workflow.
-4. Deactivating the workflow (or ending the test listen) deletes the webhook.
+4. Deactivating the workflow (or ending the test listen) deletes the webhook, or pauses it if it
+   already delivered (see Known gaps).
 
 n8n must be reachable from the internet for deliveries to arrive. Self-hosted instances need
 `WEBHOOK_URL` set to their public URL.
@@ -65,9 +74,10 @@ n8n must be reachable from the internet for deliveries to arrive. Self-hosted in
 - **Trigger sources:** only Project Management events for now. Codexum (wiki) and Roadmarq
   (feature request and bug) events are coming. Hub meeting events are not available to API keys.
 - **Webhook removal after deliveries:** Dutify currently refuses to delete a PM webhook that
-  has delivered at least once (409 ENTITY_IN_USE). The trigger then logs a warning and leaves
-  the webhook in place. On the FREE plan, leftover webhooks count against the 3-webhook limit.
-  Deactivate or remove them under PM Webhook if you hit the limit. A backend fix is pending.
+  has delivered at least once (409 ENTITY_IN_USE). When that happens, deactivating the trigger
+  pauses the webhook instead (it stops delivering), and activating again registers a new one.
+  Paused webhooks still count against the plan's webhook limit (3 on FREE) and cannot be
+  removed until the backend fix lands.
 - **Not usable with API keys yet** (Dutify refuses them with 403): Import Job list/get (needs
   `imports:read`) and User → Update Current (needs `users:write`).
 - **Sprints** must be enabled in the space settings before sprint operations work. The node has
