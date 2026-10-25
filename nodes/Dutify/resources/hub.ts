@@ -633,7 +633,7 @@ const uploadOperation: OperationDef = {
 			default: 'data',
 			required: true,
 			description:
-				'Name of the binary property of the input item that holds the file (at most 5000 MiB). It is streamed to Dutify in 16 MiB parts, never read into memory whole.',
+				'Name of the binary property of the input item that holds the file (at most 5000 MiB). When n8n keeps binary data on disk or in S3 (the n8n 2.x default), the file is streamed to Dutify without being loaded into memory.',
 		},
 		collection('Additional Fields', 'additionalFields', [
 			{
