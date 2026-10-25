@@ -118,11 +118,11 @@ Delete, or Update with Active off).
   16 MiB parts, so the node holds only one part in memory at a time (n8n 2.x keeps binary data
   on disk, in S3 or in the database by default). An upload that fails is cancelled in Hub, so it does not keep an upload
   slot. The upload returns at once with the `recordingId`; processing takes a few minutes (poll
-  Recording → Get Processing Status, or use the Meeting Processed trigger). Hub keeps an uploaded
-  file apart from the recording, so Get Media URL, Get Audio URL and Get Preview URL answer 400
-  ("Recording does not have a media file") for an uploaded recording. In Hub's code they are
-  meant for bot and desktop recordings; this was not checked live. A finished upload reports
-  progress 95, not 100; use `processed` from Get Processing Status.
+  Recording → Get Processing Status, or use the Meeting Processed trigger). For an uploaded audio
+  file, Get Media URL and Get Audio URL return signed URLs; an uploaded video answers 400 on
+  both (Hub does not give video playback links to API keys), and an audio file has no preview
+  image, so Get Preview URL answers 400. A finished upload reports progress 95, not 100; use
+  `processed` from Get Processing Status.
 - **Lens** spends the workspace's Lens credits; when they run out, Lens Ask fails with Hub's
   "out of Lens credits" message.
 - **Hub errors** come as plain text (for example `No such webhook`); the node shows that text as

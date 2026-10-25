@@ -169,24 +169,18 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 		expect((await loadOptionsOf('getHubRecordings')).map((o) => o.value)).toContain(t.recording);
 	})();
 
-	// HUB GAP (origin/master 325f29e1, MeetingService.generateAudioSasUrl/generateMediaSasUrl): an
-	// uploaded file is kept as a Video row, and the recording has no audio blob, so the recording's
-	// media, audio and preview URLs answer 400 with Hub's message. Its playback URL
-	// (/videos/recording/{id}/access-url) is closed to API keys. Bot and desktop recordings have
-	// the blob. When Hub serves uploads here too, these become "signed https URL" assertions.
+	// The test recording is an uploaded audio file: Hub signs its media and audio URLs (Hub #372).
+	// An audio file has no preview image, so the preview URL answers 400.
 	withRecording(
-		'media, audio and preview URLs of an uploaded recording answer 400 today',
+		'media and audio URLs of an uploaded audio recording are signed https URLs',
 		async (t) => {
-			const expected: Record<string, string> = {
-				getMediaUrl: 'Recording does not have a media file',
-				getAudioUrl: 'Recording does not have an audio file',
-				getPreviewUrl: 'Recording does not have a preview image',
-			};
-			for (const [operation, message] of Object.entries(expected)) {
-				const error = await runError('recording', operation, { recording: t.recording });
-				expect(error.httpCode).toBe('400');
-				expect(error.message).toBe(message);
+			for (const operation of ['getMediaUrl', 'getAudioUrl']) {
+				const result = await runOne('recording', operation, { recording: t.recording });
+				expect(JSON.stringify(result)).toMatch(/"https:\/\/[^"]+/);
 			}
+			const error = await runError('recording', 'getPreviewUrl', { recording: t.recording });
+			expect(error.httpCode).toBe('400');
+			expect(error.message).toBe('Recording does not have a preview image');
 		},
 	)();
 
@@ -204,10 +198,6 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 	const paid = (name: string, body: (t: TestRecording) => Promise<void>) =>
 		withRecording(name, body, PROCESSING_TIMEOUT_MS, true)();
 
-	// Runs before Regenerate Summary. On 2026-10-25 it ran right after it (recording 4028) and Hub
-	// refused with "Recording already has a workflow in progress :<workflow id>", although
-	// processing-status said processed; the likely cause is the summary run still in progress.
-	// Not re-run since (one reprocess per run); the assertion stays as the expected behaviour.
 	paid('reprocess re-runs the pipeline and the recording ends processed again', async (t) => {
 		const [result] = await run('recording', 'reprocess', {
 			recording: t.recording,
