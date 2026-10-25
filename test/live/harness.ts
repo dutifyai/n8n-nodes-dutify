@@ -60,7 +60,16 @@ export const live = {
 	workspace: env?.DUTIFY_TEST_WORKSPACE ?? '',
 	userEmail: env?.DUTIFY_TEST_USER_EMAIL ?? '',
 	userId: env?.DUTIFY_TEST_USER_ID ?? '',
+	/** An audio file to upload when the workspace has no test recording yet (optional). */
+	audioFile: env?.DUTIFY_TEST_AUDIO ?? '',
+	/** `1` runs the operations that cost AI credits (regenerate summary, reprocess, Lens). */
+	paidOps: env?.DUTIFY_TEST_PAID_OPS === '1',
 };
+
+/** The bytes of `live.audioFile`, or undefined when it is not set or missing. */
+export function readAudioFile(): Buffer | undefined {
+	return live.audioFile && existsSync(live.audioFile) ? readFileSync(live.audioFile) : undefined;
+}
 
 /** A short unique suffix so parallel or repeated runs never collide on names. */
 export const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
