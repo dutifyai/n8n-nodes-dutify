@@ -141,15 +141,21 @@ export function toNodeError(node: INode, error: unknown): NodeApiError {
 	}
 
 	const message = text(body.message) ?? text(body.error) ?? text(body.detail) ?? text(body.title);
+	// PM answers `{message, errorCode, details: {field, validOptions}}`; other services put
+	// `code`, `field` and `validOptions` at the top level.
+	const details = asObject(body.details) ?? {};
+	const code = body.code ?? body.errorCode;
+	const field = body.field ?? details.field;
+	const validOptions = body.validOptions ?? details.validOptions;
 	const parts: string[] = [];
-	if (body.code !== undefined && body.code !== null && body.code !== '') {
-		parts.push(`Code: ${String(body.code)}`);
+	if (code !== undefined && code !== null && code !== '') {
+		parts.push(`Code: ${String(code)}`);
 	}
-	if (body.field !== undefined && body.field !== null && body.field !== '') {
-		parts.push(`Field: ${String(body.field)}`);
+	if (field !== undefined && field !== null && field !== '') {
+		parts.push(`Field: ${String(field)}`);
 	}
-	if (Array.isArray(body.validOptions) && body.validOptions.length > 0) {
-		parts.push(`Valid options: ${body.validOptions.map(String).join(', ')}`);
+	if (Array.isArray(validOptions) && validOptions.length > 0) {
+		parts.push(`Valid options: ${validOptions.map(String).join(', ')}`);
 	}
 
 	return new NodeApiError(node, body as JsonObject, {

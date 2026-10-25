@@ -93,6 +93,29 @@ describe('toNodeError', () => {
 		expect(err.httpCode).toBe('400');
 	});
 
+	it('reads errorCode and details.field / details.validOptions (the shape production answers)', () => {
+		// Verbatim from POST /mp/api/v1/tasks/lite with a misspelled status, 2026-10-25.
+		const err = toNodeError(node, {
+			httpCode: '400',
+			response: {
+				body: {
+					message:
+						"Unknown status 'Not A Real Status zz'. Valid options: Open, In Progress, Completed, Closed",
+					errorCode: 'VALIDATION_ERROR',
+					details: {
+						field: 'status',
+						providedName: 'Not A Real Status zz',
+						validOptions: ['Open', 'In Progress', 'Completed', 'Closed'],
+					},
+				},
+			},
+		});
+		expect(err.message).toContain("Unknown status 'Not A Real Status zz'");
+		expect(err.description).toBe(
+			'Code: VALIDATION_ERROR. Field: status. Valid options: Open, In Progress, Completed, Closed',
+		);
+	});
+
 	it('shows a numeric code and field in the description', () => {
 		const err = toNodeError(node, {
 			httpCode: '422',
