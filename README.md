@@ -113,13 +113,16 @@ Delete, or Update with Active off).
 - **Roadmarq:** a new bug waits in the moderation queue and only appears in board lists after it
   is approved (Bug → Moderate).
 - **Hub uploads:** Recording → Upload places the recording in the selected workspace and uses its
-  transcription quota. Hub limits uploads to 5 GB per file and 10 in progress per user. The
-  upload returns at once with the `recordingId`; processing takes a few minutes (poll Recording →
-  Get Processing Status, or use the Meeting Processed trigger). Hub keeps an uploaded file apart
-  from the recording, so Get Media URL, Get Audio URL and Get Preview URL answer 400 ("Recording
-  does not have a media file") for an uploaded recording; they work for bot and desktop
-  recordings. A finished upload reports progress 95, not 100; use `processed` from Get
-  Processing Status.
+  transcription quota. Hub limits uploads to 5000 MiB per file and 10 in progress per user; the
+  node refuses a larger file before it starts. The file is streamed from n8n's binary data in
+  16 MiB parts, so the node holds only one part in memory at a time (n8n 2.x keeps binary data
+  on disk, in S3 or in the database by default). An upload that fails is cancelled in Hub, so it does not keep an upload
+  slot. The upload returns at once with the `recordingId`; processing takes a few minutes (poll
+  Recording → Get Processing Status, or use the Meeting Processed trigger). Hub keeps an uploaded
+  file apart from the recording, so Get Media URL, Get Audio URL and Get Preview URL answer 400
+  ("Recording does not have a media file") for an uploaded recording. In Hub's code they are
+  meant for bot and desktop recordings; this was not checked live. A finished upload reports
+  progress 95, not 100; use `processed` from Get Processing Status.
 - **Lens** spends the workspace's Lens credits; when they run out, Lens Ask fails with Hub's
   "out of Lens credits" message.
 - **Hub errors** come as plain text (for example `No such webhook`); the node shows that text as
