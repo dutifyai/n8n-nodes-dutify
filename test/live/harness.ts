@@ -63,6 +63,9 @@ export const live = {
 /** A short unique suffix so parallel or repeated runs never collide on names. */
 export const runId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
+/** A wiki space key for this run: 2 to 20 uppercase letters and digits, starting with a letter. */
+export const wikiKey = (prefix: string) => `${prefix}${runId.toUpperCase()}`.slice(0, 20);
+
 /** The workspace parameter as n8n stores a resource-locator value picked from the list. */
 export function workspaceLocator(value = live.workspace) {
 	return { __rl: true, mode: 'list', value };
