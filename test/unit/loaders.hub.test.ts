@@ -1,3 +1,4 @@
+import type { ILoadOptionsFunctions } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import {
 	hubCallOptions,
@@ -59,5 +60,24 @@ describe('Hub call and recording pickers', () => {
 	it('are wired as loadOptions methods', () => {
 		expect(typeof loadOptions.getHubCalls).toBe('function');
 		expect(typeof loadOptions.getHubRecordings).toBe('function');
+	});
+
+	it('return no options, without calling Hub, until a workspace is chosen', async () => {
+		const requests: unknown[] = [];
+		const ctx = {
+			getNodeParameter: (name: string, fallback?: unknown) => (name === 'workspace' ? '' : fallback),
+			getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
+			getNode: () => ({ name: 'Dutify', type: 'n8n-nodes-dutify.dutify', typeVersion: 1 }),
+			helpers: {
+				httpRequestWithAuthentication: async (_cred: string, options: unknown) => {
+					requests.push(options);
+
+					return [];
+				},
+			},
+		} as unknown as ILoadOptionsFunctions;
+		expect(await loadOptions.getHubCalls.call(ctx)).toEqual([]);
+		expect(await loadOptions.getHubRecordings.call(ctx)).toEqual([]);
+		expect(requests).toEqual([]);
 	});
 });

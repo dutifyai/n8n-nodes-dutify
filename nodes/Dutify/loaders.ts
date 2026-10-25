@@ -1197,6 +1197,9 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getHubCalls(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
 
 		return await orNoneWhenForbidden(async () =>
 			hubCallOptions(
@@ -1208,6 +1211,9 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getHubRecordings(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
 
 		return await orNoneWhenForbidden(async () =>
 			hubRecordingOptions(
