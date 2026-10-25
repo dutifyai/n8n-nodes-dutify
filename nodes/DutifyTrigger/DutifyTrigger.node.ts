@@ -90,19 +90,20 @@ async function removeWebhook(
 	id: string,
 	workspace: string,
 ): Promise<void> {
-	try {
-		await dutifyRequest.call(ctx, source.remove(id, { workspace }), workspace);
-	} catch (error) {
-		const code = httpCodeOf(error);
-		if (code === '404') {
-			return;
-		}
-		if (code !== '409') {
-			throw error;
-		}
-		ctx.logger?.warn(`Dutify kept webhook ${id} (it has deliveries); pausing it instead`);
-		await dutifyRequest.call(ctx, source.deactivate(id, { workspace }), workspace);
-	}
+	await dutifyRequest
+		.call(ctx, source.remove(id, { workspace }), workspace)
+		.catch(async (error: unknown) => {
+			const code = httpCodeOf(error);
+			if (code === '404') {
+				return undefined;
+			}
+			if (code !== '409') {
+				return await Promise.reject(error);
+			}
+			ctx.logger?.warn(`Dutify kept webhook ${id} (it has deliveries); pausing it instead`);
+
+			return await dutifyRequest.call(ctx, source.deactivate(id, { workspace }), workspace);
+		});
 }
 
 async function listWebhooks(
