@@ -316,3 +316,17 @@ describe('executeOperation', () => {
 		expect(out).toEqual([{ json: { success: true }, pairedItem: { item: 0 } }]);
 	});
 });
+
+describe('field descriptions', () => {
+	// Production task IDs are 10-character strings (e.g. B1GYq7Sn83), not tsk_... as the catalog
+	// examples suggest, so no description may promise a tsk_ prefix.
+	it('never describe task IDs as tsk_...', async () => {
+		const { Dutify } = await import('../../nodes/Dutify/Dutify.node');
+		const { DutifyTrigger } = await import('../../nodes/DutifyTrigger/DutifyTrigger.node');
+		const all = JSON.stringify([
+			new Dutify().description.properties,
+			new DutifyTrigger().description.properties,
+		]);
+		expect(all).not.toContain('tsk_');
+	});
+});

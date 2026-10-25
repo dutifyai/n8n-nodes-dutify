@@ -38,7 +38,7 @@ const taskField = (): INodeProperties => ({
 	type: 'string',
 	default: '',
 	required: true,
-	description: 'Task key such as PROJ-42, or the task ID (tsk_...)',
+	description: "Task key such as PROJ-42, or the task ID (the task's Identifier field)",
 });
 
 const resolveTask = async (ctx: OperationContext, p: ParamReader): Promise<string> =>

@@ -66,7 +66,7 @@ const taskIdsField: INodeProperties = {
 	default: '',
 	required: true,
 	description:
-		'Comma-separated task keys such as PROJ-42, or task IDs (tsk_...). All tasks must belong to the same space as the sprint.',
+		'Comma-separated task keys such as PROJ-42, or task IDs (the Identifier field of a task). All tasks must belong to the same space as the sprint.',
 };
 
 const changeTasks = (

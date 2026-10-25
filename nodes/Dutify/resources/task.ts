@@ -579,7 +579,7 @@ export const task: ResourceDef = {
 					default: '',
 					required: true,
 					description:
-						'Comma-separated task IDs (tsk_...). Task keys are not accepted here; use Search to get the IDs.',
+						'Comma-separated task IDs (the Identifier field of each task). Task keys are not accepted here; use Search to get the IDs.',
 				},
 				taskTypeOption,
 			],
@@ -729,7 +729,7 @@ export const taskComment: ResourceDef = {
 			action: 'Add a reaction to a comment',
 			description: 'React to a comment with an emoji code',
 			fields: [
-				taskRef('Task ID (tsk_...). Task keys are not accepted by the reaction endpoints.'),
+				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
 				commentRef,
 				{
 					displayName: 'Reaction',
@@ -753,7 +753,7 @@ export const taskComment: ResourceDef = {
 			description: 'List the reactions of a comment',
 			list: true,
 			fields: [
-				taskRef('Task ID (tsk_...). Task keys are not accepted by the reaction endpoints.'),
+				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
 				commentRef,
 			],
 			build: (p) => ({ method: 'GET', path: commentPath(p), paginate: REACTION_PAGING }),
@@ -764,7 +764,7 @@ export const taskComment: ResourceDef = {
 			action: 'Remove a reaction from a comment',
 			description: 'Remove your own reaction from a comment',
 			fields: [
-				taskRef('Task ID (tsk_...). Task keys are not accepted by the reaction endpoints.'),
+				taskRef("Task ID (the task's Identifier field). Task keys are not accepted by the reaction endpoints."),
 				commentRef,
 				{
 					displayName: 'Reaction ID',

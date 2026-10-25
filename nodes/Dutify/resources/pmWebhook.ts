@@ -121,11 +121,11 @@ export const scopeFields = (forUpdate: boolean): INodeProperties[] => [
 		default: '',
 		required: true,
 		displayOptions: { show: { scopeType: ['TASK'] } },
-		description: 'Task key such as PROJ-42, or the task ID (tsk_...)',
+		description: "Task key such as PROJ-42, or the task ID (the task's Identifier field)",
 	},
 ];
 
-/** The scope part of a create or update body. A task key is resolved to its `tsk_` ID. */
+/** The scope part of a create or update body. A task key is resolved to its task ID. */
 export async function scopeBody(
 	request: (spec: RequestSpec) => Promise<unknown>,
 	p: ParamReader,

@@ -311,7 +311,7 @@ const taskScopeField: INodeProperties = {
 	default: '',
 	required: true,
 	displayOptions: { show: { scope: ['task'] } },
-	description: 'Task key such as PROJ-42, or the task ID (tsk_...)',
+	description: "Task key such as PROJ-42, or the task ID (the task's Identifier field)",
 };
 
 async function activityPath(ctx: OperationContext, p: ParamReader): Promise<string> {
