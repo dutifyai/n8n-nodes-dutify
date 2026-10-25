@@ -277,7 +277,9 @@ function createSpec(p: ParamReader): RequestSpec {
 	}
 	commonBody(fields, body, false);
 
-	return { method: 'POST', path: '/mp/api/v1/tasks/lite', qs: wsQs(p), body };
+	// No query string: the catalog gives this endpoint none and the backend rejects unknown
+	// parameters. The workspace travels in the X-Dutify-Workspace header.
+	return { method: 'POST', path: '/mp/api/v1/tasks/lite', body };
 }
 
 function updateSpec(p: ParamReader): RequestSpec {

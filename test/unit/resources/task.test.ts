@@ -235,9 +235,10 @@ describe('task', () => {
 				},
 			}),
 		).toEqual({
+			// The catalog gives POST /tasks/lite no query parameters, and the backend rejects
+			// unknown ones (seen live). The workspace travels in the X-Dutify-Workspace header.
 			method: 'POST',
 			path: '/mp/api/v1/tasks/lite',
-			qs: { workspace: 'ws-1' },
 			body: {
 				title: 'Fix login bug',
 				list: 'Backlog',
@@ -318,7 +319,6 @@ describe('task', () => {
 		expect(calls[1]).toEqual({
 			method: 'POST',
 			path: '/mp/api/v1/tasks/lite',
-			qs: { workspace: 'ws-1' },
 			body: { title: 'T', list: 'lst_backlog', status: 'Open' },
 		});
 	});
