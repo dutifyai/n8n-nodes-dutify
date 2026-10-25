@@ -1,6 +1,14 @@
 import { ApplicationError } from 'n8n-workflow';
 import type { IBinaryData, IDataObject, INodeExecutionData, INodeProperties } from 'n8n-workflow';
-import { collection, idPicker, isSet, jsonField, oneItem } from '../../../shared/fieldHelpers';
+import {
+	collection,
+	dateTime,
+	idPicker,
+	isSet,
+	jsonField,
+	oneItem,
+	toInstant,
+} from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type {
 	OperationContext,
@@ -402,12 +410,124 @@ const recordingOperations: OperationDef[] = [
 	},
 ];
 
+/* ---------- upload (Recording Upload: session → PUT → complete) ---------- */
+
+interface UploadSession {
+	blobName?: string;
+	uploadUrl?: string | null;
+}
+
+const NOTE_TEMPLATES = [
+	{ name: 'General', value: 'general' },
+	{ name: 'Interview', value: 'interview' },
+	{ name: 'One on One', value: 'one_on_one' },
+	{ name: 'Sales', value: 'sales' },
+	{ name: 'Standup', value: 'standup' },
+];
+
+/**
+ * Opens an upload session, PUTs the bytes to its presigned URL (no Dutify auth), then completes
+ * it, which registers the recording in the workspace and starts processing. A session that cannot
+ * be completed is released, so it does not hold one of the user's 10 upload slots for 6 hours.
+ */
+async function uploadRecording(ctx: OperationContext, p: ParamReader) {
+	const property = p.get<string>('binaryPropertyName', 'data');
+	const fields = p.get<IDataObject>('additionalFields', {});
+	const { data, mimeType, fileName } = await ctx.readBinary(property);
+	if (data.length === 0) {
+		throw new ApplicationError(`The binary property "${property}" is empty; nothing to upload`);
+	}
+	const session = (await ctx.request({
+		method: 'POST',
+		path: '/api/videos/upload-session',
+		body: { fileName: isSet(fields.fileName) ? fields.fileName : fileName, fileSize: data.length },
+	})) as UploadSession | null;
+	const blobName = session?.blobName;
+	if (!blobName) {
+		throw new ApplicationError('Hub returned no upload session');
+	}
+
+	let stored = false;
+	try {
+		if (!session.uploadUrl) {
+			throw new ApplicationError('Hub returned no upload URL for this session');
+		}
+		await ctx.putBinary(session.uploadUrl, data, mimeType || 'application/octet-stream');
+		stored = true;
+	} finally {
+		if (!stored) {
+			await ctx
+				.request({ method: 'DELETE', path: encodePath`/api/videos/upload-session/${blobName}` })
+				.catch(() => undefined);
+		}
+	}
+
+	const body: IDataObject = { blobName };
+	if (isSet(fields.recordedAt)) {
+		body.recordedAt = toInstant(fields.recordedAt);
+	}
+	for (const key of ['userNotes', 'noteTemplate'] as const) {
+		if (isSet(fields[key])) {
+			body[key] = fields[key];
+		}
+	}
+
+	return oneItem(await ctx.request({ method: 'POST', path: '/api/videos/complete', body }));
+}
+
+const uploadOperation: OperationDef = {
+	operation: 'upload',
+	name: 'Upload',
+	action: 'Upload a recording',
+	description:
+		'Upload an audio or video file as a new recording of this workspace. Dutify transcribes and summarises it like any upload; the result carries recordingId. Uses transcription quota',
+	fields: [
+		{
+			displayName: 'Input Binary Field',
+			name: 'binaryPropertyName',
+			type: 'string',
+			default: 'data',
+			required: true,
+			description:
+				'Name of the binary property of the input item that holds the file (at most 5 GB)',
+		},
+		collection('Additional Fields', 'additionalFields', [
+			{
+				displayName: 'File Name',
+				name: 'fileName',
+				type: 'string',
+				default: '',
+				description:
+					'The name to store the file under, with its extension. Default: the name of the binary file.',
+			},
+			{
+				displayName: 'Note Template',
+				name: 'noteTemplate',
+				type: 'options',
+				options: NOTE_TEMPLATES,
+				default: 'general',
+				description: 'The kind of meeting, which shapes the generated notes',
+			},
+			dateTime('Recorded At', 'recordedAt', 'When the meeting happened. Default: now.'),
+			{
+				displayName: 'Notes',
+				name: 'userNotes',
+				type: 'string',
+				typeOptions: { rows: 3 },
+				default: '',
+				description: 'Your own notes on the meeting',
+			},
+		]),
+	],
+	run: uploadRecording,
+};
+
 /** Hub recordings. Scopes: recordings:read, recordings:write. */
 export const recording: ResourceDef = {
 	value: 'recording',
 	name: 'Recording',
 	workspaceScoped: true,
-	operations: recordingOperations,
+	operations: [...recordingOperations, uploadOperation],
 };
 
 /* ---------- Lens ---------- */
