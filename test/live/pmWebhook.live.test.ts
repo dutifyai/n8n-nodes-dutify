@@ -14,8 +14,8 @@ import {
 
 /** Deliveries go to example.com (IANA-reserved, nobody receives them). */
 const HOOK_PREFIX = 'https://example.com/n8n-live/';
-/** The one webhook allowed to deliver; matched exactly so a round-trip leftover is never adopted. */
-const FIXTURE_URL = `${HOOK_PREFIX}fixture`;
+/** The one webhook allowed to deliver. */
+const FIXTURE_URL = `${HOOK_PREFIX}fixture-${runId}`;
 
 /** The plan's webhook quota is full (402 QUOTA_EXCEEDED): the test cannot create a webhook. */
 const isQuotaFull = (error: unknown) => {
@@ -38,12 +38,9 @@ async function createOrSkip(skip: (note: string) => void, params: IDataObject) {
 }
 
 /*
- * BACKEND BUG (PM WebhookService.deleteWebhook + migration 095, origin/master 946745b2):
- * fk_webhook_delivery_subscription has no ON DELETE CASCADE and the service does not remove the
- * deliveries, so a webhook that ever delivered answers 409 ENTITY_IN_USE on delete. It still
- * counts against the plan's webhook quota (3 on FREE). So that repeated runs do not fill the
- * quota, the delivery checks reuse ONE parked fixture webhook (inactive between runs), and the
- * create / delete round-trip uses a webhook that never delivers.
+ * Webhooks count against the plan's webhook quota (3 on FREE), so each test deletes the webhook it
+ * creates. Deleting a webhook that has delivered works since dutify-pm PR #232 (before it, PM
+ * answered 409 ENTITY_IN_USE and the webhook could never be removed).
  */
 liveDescribe('PM webhook — live', () => {
 	const cleanup = cleanupStack();
@@ -116,37 +113,26 @@ liveDescribe('PM webhook — live', () => {
 		expect(gone.httpCode).toBe('404');
 	});
 
-	it('test, listDeliveries, delivery picker and replayDelivery on the parked fixture webhook', async ({
+	it('test, listDeliveries, delivery picker and replayDelivery on a fixture webhook', async ({
 		skip,
 	}) => {
-		const parked = (await run('pmWebhook', 'list', { additionalFields: { all: true } })).find(
-			(w) => w.url === FIXTURE_URL,
+		fixture = String(
+			(
+				await createOrSkip(skip, {
+					url: FIXTURE_URL,
+					secret: `s-${runId}`,
+					eventTypes: ['task-created'],
+					scopeType: 'SPACE',
+					scopeSpace: space.identifier,
+					additionalFields: { name: 'n8n live delivery fixture' },
+				})
+			).identifier,
 		);
-		if (parked) {
-			fixture = String(parked.identifier);
-		} else {
-			fixture = String(
-				(
-					await createOrSkip(skip, {
-						url: FIXTURE_URL,
-						secret: `s-${runId}`,
-						eventTypes: ['task-created'],
-						scopeType: 'SPACE',
-						scopeSpace: space.identifier,
-						additionalFields: { name: 'n8n live delivery fixture' },
-					})
-				).identifier,
-			);
-		}
+		const created = fixture;
 		cleanup.add(
-			`park webhook ${fixture}`,
-			async () =>
-				await runOne('pmWebhook', 'update', {
-					webhook: fixture,
-					updateFields: { active: false },
-				}),
+			`webhook ${created}`,
+			async () => await runOne('pmWebhook', 'delete', { webhook: created }),
 		);
-		await runOne('pmWebhook', 'update', { webhook: fixture, updateFields: { active: true } });
 
 		const before = await run('pmWebhook', 'listDeliveries', { webhook: fixture, returnAll: true });
 		const sent = await runOne('pmWebhook', 'test', { webhook: fixture });
@@ -165,28 +151,12 @@ liveDescribe('PM webhook — live', () => {
 		expect(replayed).toEqual(expect.any(Object));
 	});
 
-	/*
-	 * BACKEND BUG (see the top of this file): a webhook that delivered cannot be deleted. The first
-	 * test pins today's 409; the tripwire holds the correct behaviour and starts failing (and so
-	 * gets noticed) once the backend deletes it.
-	 */
-	it('delete of a webhook with deliveries is refused today with 409 ENTITY_IN_USE', async ({
-		skip,
-	}) => {
-		if (!fixture) {
-			skip('no fixture webhook');
-		}
-		const error = await runError('pmWebhook', 'delete', { webhook: fixture });
-		expect(error.httpCode).toBe('409');
-		expect(error.description).toContain('ENTITY_IN_USE');
-	});
-
-	it.fails('delete of a webhook with deliveries succeeds (fails in production, see above)', async ({
-		skip,
-	}) => {
+	it('delete of a webhook with deliveries succeeds', async ({ skip }) => {
 		if (!fixture) {
 			skip('no fixture webhook');
 		}
 		expect(await runOne('pmWebhook', 'delete', { webhook: fixture })).toEqual({ success: true });
+		const gone = await runError('pmWebhook', 'get', { webhook: fixture });
+		expect(gone.httpCode).toBe('404');
 	});
 });

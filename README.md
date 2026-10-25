@@ -76,16 +76,15 @@ Delete, or Update with Active off).
 
 - **Trigger sources:** only Project Management events for now. Codexum (wiki) and Roadmarq
   (feature request and bug) events are coming. Hub meeting events are not available to API keys.
-- **Webhook removal after deliveries:** Dutify currently refuses to delete a PM webhook that
-  has delivered at least once (409 ENTITY_IN_USE). When that happens, deactivating the trigger
-  pauses the webhook instead (it stops delivering). Activating again switches that same
-  webhook back on with a new secret, so each n8n URL (test and production) keeps one webhook.
-  A webhook Dutify paused itself (for example after a day of failed deliveries while n8n was
-  down) is switched back on the same way when you deactivate and activate the workflow again.
-  n8n 2.x does not re-check webhook triggers when it restarts, so a restart alone does not
-  switch it back on.
-  Paused webhooks still count against the plan's webhook limit (3 on FREE) and cannot be
-  removed until the backend fix lands.
+- **Webhook lifecycle:** deactivating the trigger deletes its webhook. If Dutify refuses the
+  delete (older Dutify versions answered 409 ENTITY_IN_USE for a webhook that had delivered),
+  the trigger pauses the webhook instead. Activating again reuses a webhook already at that n8n
+  URL and switches it back on with a new secret, so each n8n URL (test and production) keeps
+  one webhook. A webhook Dutify paused itself (for example after a day of failed deliveries
+  while n8n was down) is switched back on the same way when you deactivate and activate the
+  workflow again. n8n 2.x does not re-check webhook triggers when it restarts, so a restart
+  alone does not switch it back on. Paused webhooks still count against the plan's webhook
+  limit (3 on FREE); delete them in Dutify if you no longer need them.
 - **Not usable with API keys yet** (Dutify refuses them with 403): Import Job list/get (needs
   `imports:read`) and User → Update Current (needs `users:write`).
 - **Sprints** must be enabled in the space settings before sprint operations work. The node has
