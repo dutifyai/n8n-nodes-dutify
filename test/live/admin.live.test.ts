@@ -1,5 +1,14 @@
 import { afterAll, expect, it } from 'vitest';
-import { cleanupStack, liveDescribe, live, loadOptionsOf, run, runError, runOne, runId } from './harness';
+import {
+	cleanupStack,
+	liveDescribe,
+	live,
+	loadOptionsOf,
+	run,
+	runError,
+	runOne,
+	runId,
+} from './harness';
 
 /**
  * Team round-trip; member, invitation and import job reads only. Invitations would send real
@@ -65,17 +74,17 @@ liveDescribe('team, member, invitation, import job — live', () => {
 		expect(Array.isArray(await loadOptionsOf('getInvitations'))).toBe(true);
 	});
 
-	// BACKEND BUG (PM ApiKeyScopeFilter + ApiKeyScope, origin/master 946745b2): GET .../import
-	// needs `imports:read`, but ApiKeyScope only defines `imports:write`, so not even a
-	// `suite:*` key can read import jobs. The node shows the 403 as a NodeApiError.
-	it('import job list is refused with a 403 that names the missing scope', async () => {
-		const error = await runError('importJob', 'list', { returnAll: true });
-		expect(error.httpCode).toBe('403');
-		expect(error.message).toContain('imports:read');
-	});
-
-	it.fails('import job list answers (fails in production, see above)', async () => {
+	// `imports:read` exists since dutify-pm #234 (prod-0.1.793). The test workspace has no import
+	// jobs (none is started here: confirming one creates tasks from a CSV), so get is checked
+	// against an unknown job.
+	it('import job list, picker and get answer with imports:read', async () => {
 		const jobs = await run('importJob', 'list', { returnAll: true });
 		expect(Array.isArray(jobs)).toBe(true);
+		const options = await loadOptionsOf('getImportJobs');
+		expect(options).toHaveLength(jobs.length);
+		const unknown = await runError('importJob', 'get', {
+			job: '00000000-0000-0000-0000-000000000000',
+		});
+		expect(unknown.httpCode).toBe('404');
 	});
 });

@@ -204,7 +204,11 @@ function commonTaskOptions(): INodeProperties[] {
 		text('Priority', 'priority', 'Priority name, for example High'),
 		text('Level', 'level', 'Task level name, for example L2'),
 		text('Tags', 'tags', 'Comma-separated tag names. Missing tags are created.'),
-		text('Parent', 'parent', 'Parent task key or ID. Makes the task a subtask.'),
+		text(
+			'Parent',
+			'parent',
+			'Parent task key or ID. Makes the task a subtask; on create, the parent alone places it in the parent list. The space must have subtasks switched on.',
+		),
 		text('Next To', 'nextTo', 'Key or ID of a sibling task to position this one after'),
 		{
 			displayName: 'Custom Fields',

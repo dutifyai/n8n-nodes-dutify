@@ -85,8 +85,7 @@ Delete, or Update with Active off).
   workflow again. n8n 2.x does not re-check webhook triggers when it restarts, so a restart
   alone does not switch it back on. Paused webhooks still count against the plan's webhook
   limit (3 on FREE); delete them in Dutify if you no longer need them.
-- **Not usable with API keys yet** (Dutify refuses them with 403): Import Job list/get (needs
-  `imports:read`) and User → Update Current (needs `users:write`).
+- **Subtasks** must be switched on in the space settings before a task can get a parent.
 - **Sprints** must be enabled in the space settings before sprint operations work. The node has
   no operation to enable them.
 - **Plan limits apply** as in the app. On FREE, for example: public task sharing and public

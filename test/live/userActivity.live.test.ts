@@ -20,15 +20,9 @@ liveDescribe('user — live', () => {
 		expect(JSON.stringify(me)).toContain(live.userEmail);
 	});
 
-	// BACKEND GAP (PM ApiKeyScope, origin/master 946745b2): POST /v1/users/current needs
-	// `users:write`, which ApiKeyScope does not define, so no API key can rename its user.
-	it('updateCurrent is refused with a 403 that names the missing scope', async () => {
-		const error = await runError('user', 'updateCurrent', { fullName: `n8n Live ${runId}` });
-		expect(error.httpCode).toBe('403');
-		expect(error.message).toContain('users:write');
-	});
-
-	it.fails('updateCurrent renames the test user (fails in production, see above)', async () => {
+	// `users:write` exists since dutify-pm #234 (prod-0.1.793); for API keys it covers only
+	// POST /v1/users/current.
+	it('updateCurrent renames the test user (then restores the name)', async () => {
 		const before = await runOne('user', 'getCurrent');
 		const original = String(before.fullName ?? 'n8n Live Test');
 		await runOne('user', 'updateCurrent', { fullName: `n8n Live ${runId}` });
@@ -96,10 +90,16 @@ liveDescribe('notification, activity log — live', () => {
 		space = await createTestSpace(cleanup, 'activity');
 		const listName = `Activity ${runId}`;
 		await runOne('list', 'create', { space: space.name, name: listName });
-		const task = await runOne('task', 'create', { title: `Activity task ${runId}`, list: listName });
+		const task = await runOne('task', 'create', {
+			title: `Activity task ${runId}`,
+			list: listName,
+		});
 		taskKey = String(task.key);
 		cleanup.add(`task ${taskKey}`, async () => await runOne('task', 'delete', { task: taskKey }));
-		await runOne('task', 'update', { task: taskKey, updateFields: { title: `Activity ${runId} 2` } });
+		await runOne('task', 'update', {
+			task: taskKey,
+			updateFields: { title: `Activity ${runId} 2` },
+		});
 	});
 	afterAll(async () => await cleanup.run());
 
@@ -113,7 +113,11 @@ liveDescribe('notification, activity log — live', () => {
 	});
 
 	it('activity log of the task, the space and the workspace include the task', async () => {
-		const ofTask = await run('activityLog', 'list', { scope: 'task', task: taskKey, returnAll: true });
+		const ofTask = await run('activityLog', 'list', {
+			scope: 'task',
+			task: taskKey,
+			returnAll: true,
+		});
 		expect(ofTask.length).toBeGreaterThan(0);
 		const ofSpace = await run('activityLog', 'list', {
 			scope: 'space',

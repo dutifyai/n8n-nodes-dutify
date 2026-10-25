@@ -5,6 +5,7 @@ import {
 	liveDescribe,
 	live,
 	loadOptionsOf,
+	rawRequest,
 	run,
 	runError,
 	runOne,
@@ -99,36 +100,39 @@ liveDescribe('task, task comment, task relationship — live', () => {
 		expect(subtasks.map((s) => s.key)).toContain(child.key);
 	});
 
-	// BACKEND BUG (PM LiteTaskRequestMapper, origin/master 946745b2): POST /tasks/lite with
-	// `parent` and no `list` always answers 400. With a key: "workspaceIdentifier is required to
-	// resolve a task key"; with the task ID: "Cannot specify both parent task and task list"
-	// (the mapper copies the parent's list into the request). `it.fails` turns red once the
-	// backend is fixed, so this test then becomes a plain `it`.
-	it('subtasks: create with only a parent is refused today with exactly this 400', async () => {
-		const byId = await runError('task', 'create', {
-			title: `Live subtask by create ${runId}`,
+	// A new space has subtasks off; creating a subtask there is refused (PM TaskService).
+	it('subtasks: create with only a parent is refused while the space has subtasks off', async () => {
+		const error = await runError('task', 'create', {
+			title: `Live subtask refused ${runId}`,
 			additionalFields: { parent: task.identifier },
 		});
-		expect(byId.httpCode).toBe('400');
-		expect(byId.message).toContain('Cannot specify both parent task and task list');
-		const byKey = await runError('task', 'create', {
-			title: `Live subtask by create ${runId}`,
-			additionalFields: { parent: task.key },
-		});
-		expect(byKey.httpCode).toBe('400');
-		expect(byKey.message).toContain('workspaceIdentifier is required to resolve a task key');
+		expect(error.httpCode).toBe('400');
+		expect(error.message).toContain('Subtasks are not enabled for this space');
 	});
 
-	it.fails('subtasks: create with only a parent (fails in production, see above)', async () => {
-		const created = await runOne('task', 'create', {
-			title: `Live subtask by create ${runId}`,
-			additionalFields: { parent: task.identifier },
+	// Fixed in dutify-pm #234 (prod-0.1.793): the parent alone places the subtask, by task ID or
+	// by key (the key resolves in the API key's workspace).
+	it('subtasks: create with only a parent, by task ID and by key, lands in the parent list', async () => {
+		// The node has no Space > Update.
+		await rawRequest({
+			method: 'PUT',
+			path: `/mp/api/v1/spaces/${space.identifier}`,
+			body: { isSubtasksEnabled: true },
 		});
-		cleanup.add(
-			`task ${String(created.key)}`,
-			async () => await runOne('task', 'delete', { task: String(created.key) }),
-		);
-		expect(created.parent).toBe(task.key);
+		for (const parent of [task.identifier, task.key]) {
+			const created = await runOne('task', 'create', {
+				title: `Live subtask by create ${runId}`,
+				additionalFields: { parent },
+			});
+			cleanup.add(
+				`task ${String(created.key)}`,
+				async () => await runOne('task', 'delete', { task: String(created.key) }),
+			);
+			expect(created.parent).toBe(task.key);
+			expect(created.list).toBe(listName);
+		}
+		const subtasks = await run('task', 'getSubtasks', { task: task.key, returnAll: true });
+		expect(subtasks.filter((s) => s.title === `Live subtask by create ${runId}`)).toHaveLength(2);
 	});
 
 	it('search finds the task by text and list name', async () => {
@@ -204,9 +208,9 @@ liveDescribe('task, task comment, task relationship — live', () => {
 		});
 		expect(remaining.map((r) => r.identifier)).not.toContain(reaction);
 
-		expect(
-			await runOne('taskComment', 'delete', { task: task.key, comment: commentId }),
-		).toEqual({ success: true });
+		expect(await runOne('taskComment', 'delete', { task: task.key, comment: commentId })).toEqual({
+			success: true,
+		});
 		const afterDelete = await run('taskComment', 'list', { task: task.key, returnAll: true });
 		expect(afterDelete.map((c) => c.identifier)).not.toContain(commentId);
 	});
@@ -230,9 +234,9 @@ liveDescribe('task, task comment, task relationship — live', () => {
 		const listed = await run('taskRelationship', 'list', { task: task.key, returnAll: true });
 		expect(listed.map((r) => r.identifier)).toContain(relationship);
 
-		expect(
-			await runOne('taskRelationship', 'delete', { task: task.key, relationship }),
-		).toEqual({ success: true });
+		expect(await runOne('taskRelationship', 'delete', { task: task.key, relationship })).toEqual({
+			success: true,
+		});
 		const after = await run('taskRelationship', 'list', { task: task.key, returnAll: true });
 		expect(after.map((r) => r.identifier)).not.toContain(relationship);
 	});
