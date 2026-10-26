@@ -11,7 +11,7 @@ import type {
 	RequestSpec,
 	ResourceDef,
 } from '../../../shared/types';
-import { contextSpec } from '../loaders';
+import { contextSpec, spaceLists } from '../loaders';
 
 /* ---------- shared helpers ---------- */
 
@@ -67,10 +67,20 @@ function withParams(p: ParamReader, overrides: Record<string, unknown>): ParamRe
 
 /* ---------- list name -> identifier ---------- */
 
+interface ListRef {
+	identifier?: string;
+	name: string;
+}
+/** Folders nest: each carries its sub-folders in `folders`, at any depth. */
+interface FolderWithIds {
+	name: string;
+	lists?: ListRef[] | null;
+	folders?: FolderWithIds[] | null;
+}
 interface ContextWithIds {
 	spaces?: Array<{
-		lists?: Array<{ identifier?: string; name: string }> | null;
-		folders?: Array<{ lists?: Array<{ identifier?: string; name: string }> | null }> | null;
+		lists?: ListRef[] | null;
+		folders?: FolderWithIds[] | null;
 	}> | null;
 }
 
@@ -91,10 +101,7 @@ async function resolveListId(
 	const context = (await ctx.request(
 		contextSpec(workspace, { shallow: true, ...(space ? { space } : {}) }),
 	)) as ContextWithIds | undefined;
-	const lists = (context?.spaces ?? []).flatMap((s) => [
-		...(s.lists ?? []),
-		...(s.folders ?? []).flatMap((f) => f.lists ?? []),
-	]);
+	const lists = (context?.spaces ?? []).flatMap((s) => spaceLists<ListRef>(s));
 	if (lists.some((l) => l.identifier === value)) {
 		return value;
 	}

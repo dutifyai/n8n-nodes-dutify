@@ -346,6 +346,34 @@ describe('task', () => {
 		expect(calls[1].body).toEqual({ title: 'T', list: 'lst_q2' });
 	});
 
+	it('create run: a list in a sub-folder (several folders deep) is found too', async () => {
+		const { calls } = await run(
+			task,
+			'create',
+			{ title: 'T', space: '', list: 'Deep', status: '', additionalFields: {} },
+			[
+				{
+					spaces: [
+						{
+							name: 'Engineering',
+							folders: [
+								{
+									name: 'Q2',
+									lists: [],
+									folders: [
+										{ name: 'Sub', folders: [{ name: 'Inner', lists: [{ identifier: 'lst_deep', name: 'Deep' }] }] },
+									],
+								},
+							],
+						},
+					],
+				},
+				{},
+			],
+		);
+		expect(calls[1].body).toEqual({ title: 'T', list: 'lst_deep' });
+	});
+
 	it('create run: a list value that matches no list name is sent as given (already an identifier)', async () => {
 		const { calls } = await run(
 			task,

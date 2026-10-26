@@ -280,6 +280,75 @@ describe('identifier pickers', () => {
 	});
 });
 
+describe('nested folders (lite context nests sub-folders in `folders`)', () => {
+	const context = {
+		spaces: [
+			{
+				identifier: 'sp_eng',
+				name: 'Engineering',
+				lists: [],
+				folders: [
+					{
+						identifier: 'fld_q2',
+						name: 'Q2',
+						lists: [{ identifier: 'lst_q2', name: 'Plan', statuses: ['Q2 open'] }],
+						folders: [
+							{
+								identifier: 'fld_sub',
+								name: 'Sub',
+								lists: [],
+								folders: [
+									{
+										identifier: 'fld_deep',
+										name: 'Deep',
+										folders: null,
+										lists: [
+											{
+												identifier: 'lst_deep',
+												name: 'Deep list',
+												statuses: ['Deep open'],
+												customFields: [{ identifier: 'cf_deep', name: 'Risk', type: 'text' }],
+											},
+										],
+									},
+								],
+							},
+						],
+					},
+				],
+			},
+		],
+	};
+
+	it('folder picker lists every folder at any depth, labelled with its path', () => {
+		expect(folderIdOptions(context)).toEqual([
+			{ name: 'Engineering / Q2', value: 'fld_q2' },
+			{ name: 'Engineering / Q2 / Sub', value: 'fld_sub' },
+			{ name: 'Engineering / Q2 / Sub / Deep', value: 'fld_deep' },
+		]);
+	});
+
+	it('list pickers reach lists in sub-folders, labelled with the folder path', () => {
+		expect(listIdOptions(context)).toEqual([
+			{ name: 'Engineering / Q2 / Plan', value: 'lst_q2' },
+			{ name: 'Engineering / Q2 / Sub / Deep / Deep list', value: 'lst_deep' },
+		]);
+		expect(listOptions(context)).toEqual([
+			{ name: 'Plan (Q2)', value: 'Plan' },
+			{ name: 'Deep list (Q2 / Sub / Deep)', value: 'Deep list' },
+		]);
+	});
+
+	it('statuses and custom fields of a nested list are found', () => {
+		expect(statusOptions(context, 'Deep list', 'Engineering')).toEqual([
+			{ name: 'Deep open', value: 'Deep open' },
+		]);
+		expect(customFieldIdOptions(context)).toEqual([
+			{ name: 'Risk (text) - Engineering / Q2 / Sub / Deep / Deep list', value: 'cf_deep' },
+		]);
+	});
+});
+
 describe('view and widget pickers', () => {
 	it('viewsSpec: lists views of the chosen scope, 200 per page', () => {
 		expect(viewsSpec('list', 'lst_abc')).toEqual({

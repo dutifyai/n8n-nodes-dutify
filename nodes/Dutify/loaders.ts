@@ -49,6 +49,38 @@ interface ContextFolder {
 	identifier?: string;
 	name: string;
 	lists?: ContextList[] | null;
+	/** Sub-folders, same shape, at any depth. */
+	folders?: ContextFolder[] | null;
+}
+
+interface FolderNode<L> {
+	identifier?: string;
+	name: string;
+	lists?: L[] | null;
+	folders?: Array<FolderNode<L>> | null;
+}
+
+/** Every folder of a tree, depth first, with the names of the folders from the top down to it. */
+export function walkFolders<L, F extends FolderNode<L>>(
+	folders: F[] | null | undefined,
+	parents: string[] = [],
+): Array<{ folder: F; path: string[] }> {
+	return (folders ?? []).flatMap((folder) => {
+		const path = [...parents, folder.name];
+
+		return [{ folder, path }, ...walkFolders<L, F>(folder.folders as F[] | null | undefined, path)];
+	});
+}
+
+/** The lists of a space: top-level first, then each folder's lists, at any depth. */
+export function spaceLists<L>(space: {
+	lists?: L[] | null;
+	folders?: Array<FolderNode<L>> | null;
+}): L[] {
+	return [
+		...(space.lists ?? []),
+		...walkFolders<L, FolderNode<L>>(space.folders).flatMap(({ folder }) => folder.lists ?? []),
+	];
 }
 interface ContextSpace {
 	identifier?: string;
@@ -77,7 +109,10 @@ export function spaceOptions(context: WorkspaceContext): INodePropertyOptions[] 
 	return byName((context.spaces ?? []).map((s) => s.name));
 }
 
-/** Lists of one space (or of every space), top-level first, then folder lists labelled "List (Folder)". */
+/**
+ * Lists of one space (or of every space), top-level first, then folder lists labelled
+ * "List (Folder)", or "List (Folder / Sub)" in a sub-folder.
+ */
 export function listOptions(context: WorkspaceContext, space?: string): INodePropertyOptions[] {
 	const options: INodePropertyOptions[] = [];
 	for (const s of context.spaces ?? []) {
@@ -87,9 +122,9 @@ export function listOptions(context: WorkspaceContext, space?: string): INodePro
 		for (const l of s.lists ?? []) {
 			options.push({ name: l.name, value: l.name });
 		}
-		for (const f of s.folders ?? []) {
-			for (const l of f.lists ?? []) {
-				options.push({ name: `${l.name} (${f.name})`, value: l.name });
+		for (const { folder, path } of walkFolders<ContextList, ContextFolder>(s.folders)) {
+			for (const l of folder.lists ?? []) {
+				options.push({ name: `${l.name} (${path.join(' / ')})`, value: l.name });
 			}
 		}
 	}
@@ -106,8 +141,7 @@ export function statusOptions(
 		if (space && s.name !== space) {
 			continue;
 		}
-		const lists = [...(s.lists ?? []), ...(s.folders ?? []).flatMap((f) => f.lists ?? [])];
-		const match = lists.find((l) => l.name === list);
+		const match = spaceLists(s).find((l) => l.name === list);
 		if (match) {
 			return byName(match.statuses ?? []);
 		}
@@ -136,20 +170,27 @@ export function spaceIdOptions(context: WorkspaceContext): INodePropertyOptions[
 		.map((s) => ({ name: s.name, value: s.identifier as string }));
 }
 
+/** Every folder at any depth, labelled "Space / Folder / Sub". */
 export function folderIdOptions(context: WorkspaceContext): INodePropertyOptions[] {
 	return (context.spaces ?? []).flatMap((s) =>
-		(s.folders ?? [])
-			.filter((f) => f.identifier)
-			.map((f) => ({ name: `${s.name} / ${f.name}`, value: f.identifier as string })),
+		walkFolders<ContextList, ContextFolder>(s.folders)
+			.filter(({ folder }) => folder.identifier)
+			.map(({ folder, path }) => ({
+				name: [s.name, ...path].join(' / '),
+				value: folder.identifier as string,
+			})),
 	);
 }
 
-/** Every list with its identifier, labelled "Space / List" or "Space / Folder / List". */
+/** Every list with its identifier, labelled "Space / List" or "Space / Folder / Sub / List". */
 function listsWithPath(context: WorkspaceContext): Array<{ path: string; list: ContextList }> {
 	return (context.spaces ?? []).flatMap((s) => [
 		...(s.lists ?? []).map((list) => ({ path: `${s.name} / ${list.name}`, list })),
-		...(s.folders ?? []).flatMap((f) =>
-			(f.lists ?? []).map((list) => ({ path: `${s.name} / ${f.name} / ${list.name}`, list })),
+		...walkFolders<ContextList, ContextFolder>(s.folders).flatMap(({ folder, path }) =>
+			(folder.lists ?? []).map((list) => ({
+				path: [s.name, ...path, list.name].join(' / '),
+				list,
+			})),
 		),
 	]);
 }

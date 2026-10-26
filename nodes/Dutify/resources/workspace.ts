@@ -182,7 +182,7 @@ export const workspace: ResourceDef = {
 			name: 'Get Context',
 			action: 'Get the workspace context',
 			description:
-				'Members, spaces, folders, lists, statuses, task types and tags of the workspace in one call',
+				'Members, spaces, folders (sub-folders nest in folders), lists, statuses, task types and tags of the workspace in one call',
 			fields: [
 				{
 					displayName: 'Additional Fields',
