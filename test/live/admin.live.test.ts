@@ -1,19 +1,43 @@
+import { sleep } from 'n8n-workflow';
+import type { IDataObject } from 'n8n-workflow';
 import { afterAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
+	createTestSpace,
 	liveDescribe,
 	live,
 	loadOptionsOf,
+	rawMultipart,
 	run,
 	runError,
 	runOne,
 	runId,
 } from './harness';
 
+/** A UUID no account has. */
+const NO_SUCH_USER = '00000000-0000-4000-8000-000000000000';
+
 /**
- * Team round-trip; member, invitation and import job reads only. Invitations would send real
- * mail and member writes would change the test account's own membership, so those
- * operations are covered by the unit tests alone (Task 16 rulings).
+ * Resend's documented test inbox: Dutify's production mail goes through Resend, which accepts
+ * mail to delivered@resend.dev (with any +label) as delivered without passing it to anyone.
+ */
+const UNREAD_INBOX = `delivered+n8n-live-${runId}@resend.dev`;
+
+/** The test user's row in the member list. */
+async function me(): Promise<IDataObject | undefined> {
+	const members = await run('member', 'list', { returnAll: true });
+
+	return members.find((m) => m.userUuid === live.userId);
+}
+
+/**
+ * Team round-trip; member, invitation and import job operations.
+ *
+ * Member writes (change role, remove, leave, transfer ownership) are refused by Dutify for every
+ * API key, the node's only credential: 403 ACCESS_DENIED before any membership rule is checked.
+ * The catalog lists the 403 but does not say why. The tests send each one at the owner (the
+ * test user, the workspace's only member; the tests may not create accounts) and at an unknown
+ * user, and check the refusal and that the membership did not change.
  */
 liveDescribe('team, member, invitation, import job — live', () => {
 	const cleanup = cleanupStack();
@@ -87,4 +111,161 @@ liveDescribe('team, member, invitation, import job — live', () => {
 		});
 		expect(unknown.httpCode).toBe('404');
 	});
+
+	/* ---------- member writes: refused for API keys ---------- */
+
+	/** The refusal Dutify gives an API key, and the test user is still the owner. */
+	async function expectKeyRefused(
+		operation: string,
+		params: IDataObject,
+		reason: RegExp,
+	): Promise<void> {
+		const refused = await runError('member', operation, params);
+		expect(refused.httpCode).toBe('403');
+		expect(`${refused.message} ${refused.description ?? ''}`).toMatch(reason);
+		expect(await me()).toMatchObject({ isOwner: true });
+	}
+
+	const KEYS_REFUSED = /API keys cannot access this endpoint/;
+
+	it('member changeRole is refused for API keys (owner and unknown member alike)', async () => {
+		expect(await me()).toMatchObject({ isOwner: true });
+		const levels = await loadOptionsOf('getAccessLevels');
+		const memberLevel = levels.find((l) => l.name === 'Member') ?? levels[0];
+		for (const user of [live.userId, NO_SUCH_USER]) {
+			await expectKeyRefused('changeRole', { user, accessLevel: memberLevel.value }, KEYS_REFUSED);
+		}
+	});
+
+	it('member remove is refused for API keys (owner and unknown member alike)', async () => {
+		for (const user of [live.userId, NO_SUCH_USER]) {
+			await expectKeyRefused('remove', { user }, KEYS_REFUSED);
+		}
+	});
+
+	it('member transferOwnership is refused for API keys, with the reason', async () => {
+		const levels = await loadOptionsOf('getAccessLevels');
+		const admin = levels.find((l) => l.name === 'Admin') ?? levels[0];
+		await expectKeyRefused(
+			'transferOwnership',
+			{ user: NO_SUCH_USER, resultingOwnerAccessLevel: admin.value },
+			/API keys cannot transfer workspace ownership/,
+		);
+	});
+
+	it('member leave is refused for API keys', async () => {
+		await expectKeyRefused('leave', {}, KEYS_REFUSED);
+	});
+
+	/* ---------- invitations ---------- */
+
+	it('invitation send to an inbox nobody reads, list shows it, cancel revokes it', async () => {
+		const levels = await loadOptionsOf('getAccessLevels');
+		const guest = levels.find((l) => l.name === 'Guest') ?? levels[0];
+		cleanup.add('invitations of this run', async () => {
+			for (const row of await run('invitation', 'list')) {
+				if (row.invitedEmail === UNREAD_INBOX) {
+					await runOne('invitation', 'cancel', { invitation: String(row.identifier) });
+				}
+			}
+		});
+		// 201 "Invitation sent", with no body.
+		expect(
+			await runOne('invitation', 'send', {
+				email: UNREAD_INBOX,
+				accessLevel: guest.value,
+				additionalFields: { suiteAccess: true, hubAccess: false },
+			}),
+		).toEqual({ success: true });
+		const listed = await run('invitation', 'list');
+		const row = listed.find((i) => i.invitedEmail === UNREAD_INBOX);
+		expect(row).toMatchObject({
+			status: 'PENDING',
+			workspaceAccessLevelId: guest.value,
+			suiteAccess: true,
+			hubAccess: false,
+		});
+		const invitation = String(row?.identifier);
+		expect((await loadOptionsOf('getInvitations')).map((o) => String(o.value))).toContain(
+			invitation,
+		);
+
+		expect(await runOne('invitation', 'cancel', { invitation })).toEqual({ success: true });
+		const after = await run('invitation', 'list');
+		expect(JSON.stringify(after)).not.toContain(UNREAD_INBOX);
+		const again = await runError('invitation', 'cancel', { invitation });
+		expect(again.message).toMatch(/Only pending invitations can be cancelled/);
+		cancelledInvitation = invitation;
+	});
+
+	let cancelledInvitation = '';
+
+	// Backend gap: PM answers 400 OPERATION_NOT_ALLOWED, a code the catalog does not list for
+	// this endpoint (204, 401, 403, 404, 409, 500); the conflict it describes is the 409.
+	it.fails('backend gap: cancelling a cancelled invitation answers 409 as the catalog lists', async () => {
+		expect(cancelledInvitation).not.toBe('');
+		const again = await runError('invitation', 'cancel', { invitation: cancelledInvitation });
+		expect(again.httpCode).toBe('409');
+	});
+
+	it('invitation send to someone who is already a member is refused (no mail)', async () => {
+		const levels = await loadOptionsOf('getAccessLevels');
+		const error = await runError('invitation', 'send', {
+			email: live.userEmail,
+			accessLevel: levels[0].value,
+		});
+		// The catalog lists 400 and 409 for a refused invitation.
+		expect(['400', '409']).toContain(error.httpCode);
+		expect(JSON.stringify(await run('invitation', 'list'))).not.toContain(live.userEmail);
+	});
+
+	/* ---------- import: preview a 2-row CSV, confirm the mapping, the tasks appear ---------- */
+
+	it(
+		'importJob confirmMappings imports a previewed CSV into a list',
+		async () => {
+			const space = await createTestSpace(cleanup, 'import');
+			const listName = `Import ${runId}`;
+			const list = await runOne('list', 'create', { space: space.name, name: listName });
+			const csv = `Title,Notes\nImported one ${runId},a\nImported two ${runId},b\n`;
+			const preview = (await rawMultipart(
+				`/mp/api/v1/workspaces/${encodeURIComponent(live.workspace)}/import/csv/preview`,
+				{
+					file: { data: Buffer.from(csv), fileName: `n8n-live-${runId}.csv`, mimeType: 'text/csv' },
+					taskListIdentifier: String(list.identifier),
+				},
+			)) as IDataObject;
+			const job = String(preview.jobIdentifier);
+			expect(preview.csvHeaders).toEqual(['Title', 'Notes']);
+			expect((await runOne('importJob', 'get', { job })).status).toBe('PREVIEW');
+
+			const confirmed = await runOne('importJob', 'confirmMappings', {
+				job,
+				columnMappings: {
+					mapping: [{ csvHeader: 'Title', targetField: 'title', targetType: 'builtin' }],
+				},
+			});
+			expect(confirmed).toMatchObject({ identifier: job });
+			expect(confirmed.status).not.toBe('PREVIEW');
+
+			let status: IDataObject = confirmed;
+			for (let i = 0; i < 30 && !/COMPLETED|FAILED/.test(String(status.status)); i++) {
+				await sleep(2000);
+				status = await runOne('importJob', 'get', { job });
+			}
+			expect(status).toMatchObject({ status: 'COMPLETED', totalRows: 2, processedRows: 2 });
+			const found = await run('task', 'search', {
+				additionalFields: { list: listName },
+				returnAll: true,
+			});
+			expect(found.map((t) => t.title).sort()).toEqual([
+				`Imported one ${runId}`,
+				`Imported two ${runId}`,
+			]);
+			expect((await run('importJob', 'list', { returnAll: true })).map((j) => j.identifier)).toContain(
+				job,
+			);
+		},
+		120_000,
+	);
 });
