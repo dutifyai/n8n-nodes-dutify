@@ -25,6 +25,7 @@ import type {
 	INodeListSearchResult,
 	INodeProperties,
 	INodePropertyOptions,
+	IWebhookFunctions,
 	JsonObject,
 } from 'n8n-workflow';
 import { NodeApiError } from 'n8n-workflow';
@@ -392,6 +393,113 @@ export function hookContextOf(
 	});
 
 	return ctx as unknown as IHookFunctions;
+}
+
+/** A request as it reached n8n: lowercase header names and the raw body bytes. */
+export interface DeliveredRequest {
+	headers: Record<string, string | string[] | undefined>;
+	rawBody: Buffer;
+}
+
+/** What the trigger answered on the response object (only set when it answers itself). */
+export interface WebhookAnswer {
+	status?: number;
+	body?: unknown;
+}
+
+/**
+ * A Dutify Trigger webhook context for one delivered request, as n8n builds it: the trigger
+ * parameters, the node's static data (the stored secret), the headers, the raw body and the
+ * parsed JSON body. `answer` records what the trigger sends back itself (the 401 of a bad
+ * signature).
+ */
+export function webhookContextOf(
+	params: IDataObject,
+	staticData: IDataObject,
+	request: DeliveredRequest,
+	answer: WebhookAnswer = {},
+): IWebhookFunctions {
+	const read = parameterReader({ workspace: workspaceLocator(), ...params });
+	let parsed: IDataObject = {};
+	try {
+		parsed = JSON.parse(request.rawBody.toString('utf8')) as IDataObject;
+	} catch {
+		parsed = {};
+	}
+	const response = {
+		status(code: number) {
+			answer.status = code;
+
+			return response;
+		},
+		json(body: unknown) {
+			answer.body = body;
+
+			return response;
+		},
+		send(body: unknown) {
+			answer.body = body;
+
+			return response;
+		},
+		end() {
+			return response;
+		},
+	};
+	const req = {
+		headers: request.headers,
+		body: parsed,
+		rawBody: request.rawBody,
+		readRawBody: async () => undefined,
+	};
+	const ctx = {
+		getNode: () => node,
+		getNodeParameter: (name: string, fallback?: unknown, options?: { extractValue?: boolean }) =>
+			read(name, fallback, options),
+		getWorkflowStaticData: () => staticData,
+		getHeaderData: () => request.headers,
+		getRequestObject: () => req,
+		getResponseObject: () => response,
+		getBodyData: () => parsed,
+		getCredentials: async () => credentials(),
+		helpers: { httpRequestWithAuthentication, httpRequest },
+	};
+
+	return ctx as unknown as IWebhookFunctions;
+}
+
+/**
+ * A multipart/form-data POST with the test key, for setup steps the node has no operation for
+ * (e.g. the CSV import preview). Returns the parsed JSON answer; throws on a non-2xx answer.
+ */
+export async function rawMultipart(
+	path: string,
+	fields: Record<string, string | { data: Buffer; fileName: string; mimeType: string }>,
+): Promise<unknown> {
+	const creds = credentials();
+	const form = new FormData();
+	for (const [name, value] of Object.entries(fields)) {
+		if (typeof value === 'string') {
+			form.append(name, value);
+		} else {
+			form.append(
+				name,
+				new Blob([new Uint8Array(value.data)], { type: value.mimeType }),
+				value.fileName,
+			);
+		}
+	}
+	const response = await fetch(`${String(creds.baseUrl)}${path}`, {
+		method: 'POST',
+		headers: { 'X-API-Key': String(creds.apiKey), 'X-Dutify-Workspace': live.workspace },
+		body: form,
+	});
+	const text = await response.text();
+	if (!response.ok) {
+		throw new Error(`POST ${path} answered ${response.status}: ${text.slice(0, 500)}`);
+	}
+
+	return text ? JSON.parse(text) : undefined;
 }
 
 /** Runs a `loadOptions` method with the given (current) node parameters. */
