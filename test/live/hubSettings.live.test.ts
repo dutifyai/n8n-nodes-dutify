@@ -287,8 +287,12 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 			}
 			const call = String(status.userCallId);
 			expect(call).toMatch(/^\d+$/);
+			// Deletes the uploaded call if the test stops before its own delete (404 = already gone).
+			cleanup.add('uploaded call', async () => await runOne('call', 'delete', { call }));
 
-			expect(await runOne('call', 'delete', { call })).toEqual({ success: true });
+			// The catalog gives 200 OK and no body schema; Hub answers the JSON scalar `true`, which
+			// the node outputs as `{ value: true }` like every other scalar response.
+			expect(await runOne('call', 'delete', { call })).toEqual({ value: true });
 			expect((await runError('call', 'get', { call })).httpCode).toBe('404');
 		},
 		PROCESSING_TIMEOUT_MS + 120_000,
