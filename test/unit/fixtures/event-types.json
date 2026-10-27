@@ -1,0 +1,1244 @@
+[
+	{
+		"type": "attachment-added",
+		"product": "pm",
+		"description": "A file was attached to a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "attachment-deleted",
+		"product": "pm",
+		"description": "A file was removed from a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "automation-executed",
+		"product": "pm",
+		"description": "An automation ran on a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "comment-added",
+		"product": "pm",
+		"description": "A comment was added to a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "comment-deleted",
+		"product": "pm",
+		"description": "A task comment was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "comment-updated",
+		"product": "pm",
+		"description": "A task comment was edited.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-created",
+		"product": "pm",
+		"description": "A custom field was created.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-default-value-changed",
+		"product": "pm",
+		"description": "A custom field's default value changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-deleted",
+		"product": "pm",
+		"description": "A custom field was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-formula-configuration-changed",
+		"product": "pm",
+		"description": "A formula field's configuration changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-option-deleted",
+		"product": "pm",
+		"description": "An option of a custom field was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-updated",
+		"product": "pm",
+		"description": "A custom field was changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "custom-field-value-updated",
+		"product": "pm",
+		"description": "A custom field value on a task changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "descendants-moved-to-list",
+		"product": "pm",
+		"description": "A task's subtasks moved to another list.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "feedback.board.created",
+		"product": "roadmarq",
+		"description": "A feedback board was created.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.board.deleted",
+		"product": "roadmarq",
+		"description": "A feedback board was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.board.updated",
+		"product": "roadmarq",
+		"description": "A feedback board was changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.bug.affected-toggled",
+		"product": "roadmarq",
+		"description": "Someone marked or unmarked themselves as affected by a bug.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.approved",
+		"product": "roadmarq",
+		"description": "A bug report was approved.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.assigned",
+		"product": "roadmarq",
+		"description": "A bug's assignee changed.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.created",
+		"product": "roadmarq",
+		"description": "A bug was reported.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.deleted",
+		"product": "roadmarq",
+		"description": "A bug report was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.marked-spam",
+		"product": "roadmarq",
+		"description": "A bug report was marked as spam.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.merged",
+		"product": "roadmarq",
+		"description": "A bug report was merged into another.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.rejected",
+		"product": "roadmarq",
+		"description": "A bug report was rejected.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.status-changed",
+		"product": "roadmarq",
+		"description": "A bug's status changed.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.updated",
+		"product": "roadmarq",
+		"description": "A bug report was edited.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.bug.visibility-changed",
+		"product": "roadmarq",
+		"description": "A bug report's visibility changed.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.category.created",
+		"product": "roadmarq",
+		"description": "A feedback category was created.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.category.deleted",
+		"product": "roadmarq",
+		"description": "A feedback category was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.category.updated",
+		"product": "roadmarq",
+		"description": "A feedback category was changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.changelog.created",
+		"product": "roadmarq",
+		"description": "A changelog entry was created.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.changelog.deleted",
+		"product": "roadmarq",
+		"description": "A changelog entry was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.changelog.updated",
+		"product": "roadmarq",
+		"description": "A changelog entry was changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.comment.added",
+		"product": "roadmarq",
+		"description": "A comment was added to a request or bug.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.comment.deleted",
+		"product": "roadmarq",
+		"description": "A feedback comment was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.comment.updated",
+		"product": "roadmarq",
+		"description": "A feedback comment was edited.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST",
+			"FEEDBACK_BUG"
+		]
+	},
+	{
+		"type": "feedback.milestone.created",
+		"product": "roadmarq",
+		"description": "A roadmap milestone was created.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.milestone.deleted",
+		"product": "roadmarq",
+		"description": "A roadmap milestone was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.milestone.reordered",
+		"product": "roadmarq",
+		"description": "Roadmap milestones were reordered.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.milestone.updated",
+		"product": "roadmarq",
+		"description": "A roadmap milestone was changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.request.approved",
+		"product": "roadmarq",
+		"description": "A feature request was approved.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.created",
+		"product": "roadmarq",
+		"description": "A feature request was submitted.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.deleted",
+		"product": "roadmarq",
+		"description": "A feature request was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.marked-spam",
+		"product": "roadmarq",
+		"description": "A feature request was marked as spam.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.merged",
+		"product": "roadmarq",
+		"description": "A feature request was merged into another.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.milestone-changed",
+		"product": "roadmarq",
+		"description": "A feature request moved to another milestone.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.rejected",
+		"product": "roadmarq",
+		"description": "A feature request was rejected.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.status-changed",
+		"product": "roadmarq",
+		"description": "A feature request's status changed.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.request.updated",
+		"product": "roadmarq",
+		"description": "A feature request was edited.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.settings.updated",
+		"product": "roadmarq",
+		"description": "The feedback settings changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.status.created",
+		"product": "roadmarq",
+		"description": "A feedback status was created.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.status.deleted",
+		"product": "roadmarq",
+		"description": "A feedback status was deleted.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.status.reordered",
+		"product": "roadmarq",
+		"description": "Feedback statuses were reordered.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.status.updated",
+		"product": "roadmarq",
+		"description": "A feedback status was changed.",
+		"scopes": [
+			"FEEDBACK_BOARD"
+		]
+	},
+	{
+		"type": "feedback.vote.cast",
+		"product": "roadmarq",
+		"description": "Someone voted for a feature request.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "feedback.vote.retracted",
+		"product": "roadmarq",
+		"description": "Someone withdrew their vote.",
+		"scopes": [
+			"FEEDBACK_BOARD",
+			"FEEDBACK_REQUEST"
+		]
+	},
+	{
+		"type": "folder-deleted",
+		"product": "pm",
+		"description": "A folder was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "form-submitted",
+		"product": "pm",
+		"description": "A form was submitted and created a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "invitation-accepted",
+		"product": "pm",
+		"description": "An invitation was accepted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "invitation-cancelled",
+		"product": "pm",
+		"description": "An invitation was cancelled.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "invitation-declined",
+		"product": "pm",
+		"description": "An invitation was declined.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "invitation-sent",
+		"product": "pm",
+		"description": "An invitation to the workspace was sent.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "priority-created",
+		"product": "pm",
+		"description": "A priority was created.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "priority-deleted",
+		"product": "pm",
+		"description": "A priority was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "priority-inheritance-changed",
+		"product": "pm",
+		"description": "A container changed whether it inherits priorities.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "reaction-added",
+		"product": "pm",
+		"description": "A reaction was added to a task comment.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "reaction-deleted",
+		"product": "pm",
+		"description": "A reaction was removed from a task comment.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "rollup-selection-changed",
+		"product": "pm",
+		"description": "A rollup field's selection changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "sharing-configuration-changed",
+		"product": "pm",
+		"description": "A task's sharing settings changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "space-deleted",
+		"product": "pm",
+		"description": "A space was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "status-created",
+		"product": "pm",
+		"description": "A status was created.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "status-deleted",
+		"product": "pm",
+		"description": "A status was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "status-inheritance-changed",
+		"product": "pm",
+		"description": "A container changed whether it inherits statuses.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-added-to-list",
+		"product": "pm",
+		"description": "A task was added to a list.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-assignee-added",
+		"product": "pm",
+		"description": "Someone was assigned to a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-assignee-removed",
+		"product": "pm",
+		"description": "Someone was unassigned from a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-created",
+		"product": "pm",
+		"description": "A task was created.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-deleted",
+		"product": "pm",
+		"description": "A task was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-due-date-updated",
+		"product": "pm",
+		"description": "A task's due date changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-estimated-time-updated",
+		"product": "pm",
+		"description": "A task's time estimate changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-key-usage-changed",
+		"product": "pm",
+		"description": "A space switched task keys on or off.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-list-deleted",
+		"product": "pm",
+		"description": "A list was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-list-moved",
+		"product": "pm",
+		"description": "A list was moved.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-moved-from-closed-status",
+		"product": "pm",
+		"description": "A closed task was reopened.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-moved-to-closed-status",
+		"product": "pm",
+		"description": "A task was closed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-moved-to-parent-task",
+		"product": "pm",
+		"description": "A task became a subtask of another task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-priority-changed",
+		"product": "pm",
+		"description": "A task's priority changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-removed-from-list",
+		"product": "pm",
+		"description": "A task was removed from a list.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-removed-from-parent-task",
+		"product": "pm",
+		"description": "A subtask was detached from its parent task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-start-date-updated",
+		"product": "pm",
+		"description": "A task's start date changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-status-changed",
+		"product": "pm",
+		"description": "A task's status changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-time-spent-updated",
+		"product": "pm",
+		"description": "Time spent on a task changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-title-changed",
+		"product": "pm",
+		"description": "A task was renamed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "task-watcher-removed",
+		"product": "pm",
+		"description": "A watcher was removed from a task.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "team-deleted",
+		"product": "pm",
+		"description": "A team was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "team-membership-changed",
+		"product": "pm",
+		"description": "A team's members changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "wiki.attachment.deleted",
+		"product": "codexum",
+		"description": "A file was removed from a wiki page.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.attachment.uploaded",
+		"product": "codexum",
+		"description": "A file was uploaded to a wiki page.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.comment.added",
+		"product": "codexum",
+		"description": "A comment was added to a wiki page.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.comment.deleted",
+		"product": "codexum",
+		"description": "A wiki comment was deleted.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.comment.resolved",
+		"product": "codexum",
+		"description": "A wiki comment thread was resolved.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.comment.unresolved",
+		"product": "codexum",
+		"description": "A resolved wiki comment thread was reopened.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.comment.updated",
+		"product": "codexum",
+		"description": "A wiki comment was edited.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.archived",
+		"product": "codexum",
+		"description": "A wiki page was archived.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.created",
+		"product": "codexum",
+		"description": "A wiki page was created.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.deleted",
+		"product": "codexum",
+		"description": "A wiki page was deleted.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.duplicated",
+		"product": "codexum",
+		"description": "A wiki page was duplicated.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.moved",
+		"product": "codexum",
+		"description": "A wiki page was moved.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.published",
+		"product": "codexum",
+		"description": "A wiki page was published.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.restored",
+		"product": "codexum",
+		"description": "An archived wiki page was restored.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.updated",
+		"product": "codexum",
+		"description": "A wiki page's content or title changed.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.page.version-restored",
+		"product": "codexum",
+		"description": "An earlier version of a wiki page was restored.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.public-wiki.disabled",
+		"product": "codexum",
+		"description": "The public wiki was switched off.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "wiki.public-wiki.enabled",
+		"product": "codexum",
+		"description": "The public wiki was switched on.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "wiki.reaction.added",
+		"product": "codexum",
+		"description": "A reaction was added in the wiki.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.reaction.removed",
+		"product": "codexum",
+		"description": "A reaction was removed in the wiki.",
+		"scopes": [
+			"WIKI_SPACE",
+			"WIKI_PAGE"
+		]
+	},
+	{
+		"type": "wiki.settings.updated",
+		"product": "codexum",
+		"description": "The wiki's settings changed.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "wiki.space.created",
+		"product": "codexum",
+		"description": "A wiki space was created.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "wiki.space.deleted",
+		"product": "codexum",
+		"description": "A wiki space was deleted.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "wiki.space.updated",
+		"product": "codexum",
+		"description": "A wiki space was changed.",
+		"scopes": [
+			"WIKI_SPACE"
+		]
+	},
+	{
+		"type": "workspace-cleanup-requested",
+		"product": "pm",
+		"description": "Cleanup of the workspace was requested.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "workspace-deleted",
+		"product": "pm",
+		"description": "The workspace was deleted.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "workspace-ownership-transferred",
+		"product": "pm",
+		"description": "Workspace ownership was transferred.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "workspace-user-left",
+		"product": "pm",
+		"description": "A member left the workspace.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "workspace-user-removed",
+		"product": "pm",
+		"description": "A member was removed from the workspace.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	},
+	{
+		"type": "workspace-user-role-changed",
+		"product": "pm",
+		"description": "A member's workspace role changed.",
+		"scopes": [
+			"SPACE",
+			"FOLDER",
+			"TASK_LIST",
+			"TASK"
+		]
+	}
+]

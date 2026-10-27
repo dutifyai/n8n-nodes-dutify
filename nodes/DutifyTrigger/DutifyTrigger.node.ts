@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { ApplicationError, NodeConnectionTypes } from 'n8n-workflow';
+import {
+	ApplicationError,
+	NodeApiError,
+	NodeConnectionTypes,
+	NodeOperationError,
+} from 'n8n-workflow';
 import type {
 	IDataObject,
 	IHookFunctions,
@@ -8,11 +13,12 @@ import type {
 	INodeTypeDescription,
 	IWebhookFunctions,
 	IWebhookResponseData,
+	JsonObject,
 } from 'n8n-workflow';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 import { idPicker } from '../../shared/fieldHelpers';
 import { workspaceField } from '../../shared/fields';
-import { dutifyRequest } from '../../shared/transport';
+import { dutifyErrorOf, dutifyRequest } from '../../shared/transport';
 import type { ParamReader, RequestSpec } from '../../shared/types';
 import { listSearch, loadOptions } from '../Dutify/loaders';
 import { DEFAULT_MEETING_SECTIONS, sectionsField } from '../Dutify/resources/meetingWebhook';
@@ -88,26 +94,31 @@ const PRODUCT_SOURCES: Record<string, ProductSourceFields> = {
 	},
 };
 
-/** Event types of a product source, loaded from PM's `/webhooks/event-types` for that product. */
-const productEventsField = (name: string): INodeProperties => ({
+/**
+ * Event types of a product source, loaded from PM's `/webhooks/event-types` for that product and
+ * narrowed to the ones the chosen scope (`scopeField`) can take, as PM refuses the others.
+ */
+const productEventsField = (name: string, scopeField: string): INodeProperties => ({
 	displayName: 'Event Names or IDs',
 	name,
 	type: 'multiOptions',
 	typeOptions: {
 		loadOptionsMethod: 'getWebhookEventTypes',
-		loadOptionsDependsOn: ['source', 'workspace.value'],
+		loadOptionsDependsOn: ['source', 'workspace.value', scopeField],
 	},
 	default: [],
 	required: true,
 	description:
-		'The events that start the workflow. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+		'The events that start the workflow; the list shows only the events the chosen scope can take. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 });
 
 const SCOPE_HINT =
 	'Dutify delivers an event only while the person who owns the API key can see the item';
 
+const FEEDBACK_SCOPE_HINT = `${SCOPE_HINT}. A board, feature request or bug report scope needs a personal API key: Dutify refuses it for workspace and integration keys.`;
+
 const wikiFields: INodeProperties[] = [
-	productEventsField('wikiEvents'),
+	productEventsField('wikiEvents', 'wikiScopeType'),
 	{
 		displayName: 'Scope',
 		name: 'wikiScopeType',
@@ -140,7 +151,7 @@ const wikiFields: INodeProperties[] = [
 ];
 
 const feedbackFields: INodeProperties[] = [
-	productEventsField('feedbackEvents'),
+	productEventsField('feedbackEvents', 'feedbackScopeType'),
 	{
 		displayName: 'Scope',
 		name: 'feedbackScopeType',
@@ -154,7 +165,7 @@ const feedbackFields: INodeProperties[] = [
 		default: WORKSPACE_SCOPE,
 		description:
 			'Where the events must happen to be delivered. Security bug reports are never delivered to a trigger.',
-		hint: SCOPE_HINT,
+		hint: FEEDBACK_SCOPE_HINT,
 	},
 	idPicker(
 		'Board Name or ID',
@@ -199,12 +210,102 @@ function productSourceConfig(ctx: IHookFunctions, fields: ProductSourceFields): 
 	if (!targetField) {
 		throw new ApplicationError(`"${scopeType}" is not a webhook scope`);
 	}
-	const target = String(ctx.getNodeParameter(targetField, '', { extractValue: true }) ?? '').trim();
-	if (!target) {
+	const typed = String(ctx.getNodeParameter(targetField, '', { extractValue: true }) ?? '').trim();
+	if (!typed) {
 		throw new ApplicationError('Choose what the webhook scope applies to');
 	}
+	// Roadmarq matches short keys (FR-12, BG-3) in uppercase only.
+	const target =
+		SHORT_KEY_SCOPES.has(scopeType) && SHORT_KEY.test(typed) ? typed.toUpperCase() : typed;
 
 	return { eventTypes, scopeType, scopeEntityIdentifier: target };
+}
+
+/** Scope types whose target may be typed as a short key; a short key, in any case. */
+const SHORT_KEY_SCOPES = new Set(['FEEDBACK_REQUEST', 'FEEDBACK_BUG']);
+const SHORT_KEY = /^[a-z0-9]{2,10}-\d{1,9}$/i;
+
+/** What a scope type narrows to, for messages. */
+const SCOPE_LABEL: Record<string, string> = {
+	SPACE: 'space',
+	FOLDER: 'folder',
+	TASK_LIST: 'list',
+	TASK: 'task',
+	WIKI_SPACE: 'wiki space',
+	WIKI_PAGE: 'wiki page',
+	FEEDBACK_BOARD: 'board',
+	FEEDBACK_REQUEST: 'feature request',
+	FEEDBACK_BUG: 'bug report',
+};
+
+/** PM's pause reason for a webhook whose scoped item or container was deleted. */
+const SCOPE_ENTITY_GONE = 'SCOPE_ENTITY_GONE';
+
+function scopeLabelOf(cfg: IDataObject, fallbackType?: string): string {
+	const label = SCOPE_LABEL[String(cfg.scopeType ?? fallbackType ?? '')] ?? 'item';
+
+	return cfg.scopeEntityIdentifier ? `${label} "${String(cfg.scopeEntityIdentifier)}"` : label;
+}
+
+const goneMessage = (cfg: IDataObject, hook: ListedWebhook) =>
+	`The scoped ${scopeLabelOf(cfg, hook.scopeType)} was deleted, or the API key's owner can no longer see it. Choose another scope, or the whole workspace.`;
+
+/** Whether the trigger asks for the scope `hook` already has (a typed key may differ in case). */
+function sameScope(hook: ListedWebhook, cfg: IDataObject): boolean {
+	return (
+		Boolean(cfg.scopeType) &&
+		cfg.scopeType === hook.scopeType &&
+		String(cfg.scopeEntityIdentifier ?? '').toUpperCase() ===
+			String(hook.scopeEntityIdentifier ?? '').toUpperCase()
+	);
+}
+
+/** How to fix a refusal, by PM's error code. */
+function refusalHint(httpCode: string | undefined, code: string | undefined): string {
+	if (code === 'WEBHOOK_SCOPE_REQUIRES_USER') {
+		return 'Use a personal API key in the Dutify credential, or set Scope to Whole Workspace.';
+	}
+	if (httpCode === '400') {
+		return 'Check the events and the scope: every event must be one the chosen scope can take.';
+	}
+
+	return "Check the API key's scopes and the permissions of its owner.";
+}
+
+/**
+ * The activation error for a refused create or update: PM's own message, with how to fix it. A
+ * scope PM cannot find (404) says so; 400 and 403 name PM's reason and code. Anything else is the
+ * error as `dutifyRequest` made it.
+ */
+function activationError(
+	ctx: IHookFunctions,
+	error: unknown,
+	cfg: IDataObject,
+	reused: ListedWebhook | undefined,
+): unknown {
+	const { httpCode, message, code } = dutifyErrorOf(error);
+	const body: JsonObject = { message: message ?? null, errorCode: code ?? null };
+	if (
+		httpCode === '404' &&
+		(code === 'WEBHOOK_SCOPE_ENTITY_NOT_FOUND' || /scope entity not found/i.test(message ?? ''))
+	) {
+		const text = reused?.scoped
+			? goneMessage(cfg, reused)
+			: `The ${scopeLabelOf(cfg)} was not found, or the API key's owner cannot see it. Choose another scope.`;
+
+		return new NodeApiError(ctx.getNode(), body, { httpCode, message: text });
+	}
+	if ((httpCode === '400' || httpCode === '403') && message) {
+		const hint = refusalHint(httpCode, code);
+
+		return new NodeApiError(ctx.getNode(), body, {
+			httpCode,
+			message: `Dutify refused the trigger's webhook: ${message}`,
+			description: code ? `Code: ${code}. ${hint}` : hint,
+		});
+	}
+
+	return error;
 }
 
 function sourceOf(ctx: IHookFunctions | IWebhookFunctions): WebhookSource {
@@ -446,6 +547,18 @@ export class DutifyTrigger implements INodeType {
 
 				const atUrl = source.listAtUrl(await listWebhooks(this, source, workspace), url);
 				const reuse = pickReusable(atUrl);
+				if (
+					reuse &&
+					!reuse.active &&
+					reuse.pauseReason === SCOPE_ENTITY_GONE &&
+					sameScope(reuse, cfg)
+				) {
+					// Resuming it would only fail again: the scoped item no longer exists.
+					throw new NodeOperationError(this.getNode(), goneMessage(cfg, reuse), {
+						description:
+							"Dutify paused this trigger's webhook when the item it was scoped to was deleted.",
+					});
+				}
 				const stale: Array<{ id: string; workspace: string; source: WebhookSource }> = atUrl
 					.filter((hook) => hook !== reuse && hook.active)
 					.map((hook) => ({ id: hook.id, workspace, source }));
@@ -470,16 +583,20 @@ export class DutifyTrigger implements INodeType {
 
 				const secret = randomBytes(32).toString('hex');
 				let id: string;
-				if (reuse) {
-					await dutifyRequest.call(this, source.update(reuse, secret, cfg), workspace);
-					id = reuse.id;
-				} else {
-					const created = await dutifyRequest.call(
-						this,
-						source.create(url, secret, cfg),
-						workspace,
-					);
-					id = source.parseCreated(created, secret).id;
+				try {
+					if (reuse) {
+						await dutifyRequest.call(this, source.update(reuse, secret, cfg), workspace);
+						id = reuse.id;
+					} else {
+						const created = await dutifyRequest.call(
+							this,
+							source.create(url, secret, cfg),
+							workspace,
+						);
+						id = source.parseCreated(created, secret).id;
+					}
+				} catch (error) {
+					throw activationError(this, error, cfg, reuse);
 				}
 				stored.webhookId = id;
 				stored.secret = secret;

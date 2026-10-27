@@ -183,6 +183,61 @@ liveDescribe('PM webhook — live', () => {
 		expect(feedback.every((v) => String(v).startsWith('feedback.'))).toBe(true);
 	});
 
+	it('pageScopeOffersOnlyPageEvents: a wiki page scope lists only the events PM lets a page scope take', async () => {
+		const rows = (await rawRequest({
+			method: 'GET',
+			path: `/mp/api/v1/workspaces/${encodeURIComponent(live.workspace)}/webhooks/event-types`,
+		})) as Array<{ type: string; product: string; scopes?: string[] }>;
+		const wikiRows = rows.filter((r) => r.product === 'codexum');
+		expect(wikiRows.every((r) => Array.isArray(r.scopes))).toBe(true);
+		const pageLevel = wikiRows.filter((r) => r.scopes?.includes('WIKI_PAGE')).map((r) => r.type);
+
+		const offered = (
+			await loadOptionsOf('getWebhookEventTypes', { source: 'codexum', wikiScopeType: 'WIKI_PAGE' })
+		).map((o) => String(o.value));
+		expect(offered.length).toBeGreaterThan(0);
+		expect([...offered].sort()).toEqual([...pageLevel].sort());
+		expect(offered).toContain('wiki.page.updated');
+		expect(offered).not.toContain('wiki.space.updated');
+		expect(offered.every((t) => /^wiki\.(page|comment|reaction|attachment)\./.test(t))).toBe(true);
+
+		const request = (
+			await loadOptionsOf('getWebhookEventTypes', {
+				source: 'roadmarq',
+				feedbackScopeType: 'FEEDBACK_REQUEST',
+			})
+		).map((o) => String(o.value));
+		expect(request).toContain('feedback.request.created');
+		expect(request.some((t) => t.startsWith('feedback.bug.'))).toBe(false);
+	});
+
+	it('activationRefusalReadable: a space event on a page scope fails with PM reason, creating nothing', async () => {
+		const url = `${HOOK_PREFIX}refused-${runId}`;
+		const ctx = hookContextOf(
+			{
+				source: 'codexum',
+				workspace: workspaceLocator(),
+				wikiEvents: ['wiki.space.updated'],
+				wikiScopeType: 'WIKI_PAGE',
+				wikiScopePage: '00000000-0000-4000-8000-000000000000',
+			},
+			url,
+			{},
+		);
+		const error = (await new DutifyTrigger().webhookMethods.default.create.call(ctx).then(
+			() => undefined,
+			(e: unknown) => e,
+		)) as NodeApiError | undefined;
+		expect(error?.httpCode).toBe('400');
+		expect(error?.message).toMatch(/^Dutify refused the trigger's webhook: .*wiki\.space\.updated/);
+		const atUrl = (await rawRequest({
+			method: 'GET',
+			path: `/mp/api/v1/workspaces/${encodeURIComponent(live.workspace)}/webhooks`,
+			qs: { url },
+		})) as IDataObject[];
+		expect(atUrl).toEqual([]);
+	});
+
 	it('createWikiScopedWebhookRoundTrip: the trigger registers a wiki-space webhook, PM names the scope, delete removes it', async ({
 		skip,
 	}) => {

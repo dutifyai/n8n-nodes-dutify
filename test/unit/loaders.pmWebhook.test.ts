@@ -11,6 +11,8 @@ import {
 	webhookEventTypesSpec,
 } from '../../nodes/Dutify/loaders';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
+/** PM's live GET /webhooks/event-types answer (2026-10-27, PM master a488825c). */
+import eventTypesFixture from './fixtures/event-types.json';
 
 describe('PM event type picker', () => {
 	it('serves the shared static list, there being no catalog endpoint for it', () => {
@@ -108,6 +110,88 @@ describe('webhook event types from /event-types', () => {
 		expect((await loadOptions.getWebhookEventTypes.call(fr.ctx)).map((o) => o.value)).toEqual([
 			'feedback.request.created',
 		]);
+	});
+
+	it('getWebhookEventTypes offers only the events the chosen scope can narrow (the scope field of the source)', async () => {
+		const wikiRows = [
+			...rows,
+			{ type: 'wiki.space.updated', product: 'codexum', scopes: ['WIKI_SPACE'] },
+		];
+		const page = ctxWith(
+			{ source: 'codexum', workspace: 'ws-1', wikiScopeType: 'WIKI_PAGE' },
+			async () => wikiRows,
+		);
+		expect((await loadOptions.getWebhookEventTypes.call(page.ctx)).map((o) => o.value)).toEqual([
+			'wiki.comment.added',
+			'wiki.page.published',
+		]);
+		const space = ctxWith(
+			{ source: 'codexum', workspace: 'ws-1', wikiScopeType: 'WIKI_SPACE' },
+			async () => wikiRows,
+		);
+		expect((await loadOptions.getWebhookEventTypes.call(space.ctx)).map((o) => o.value)).toEqual([
+			'wiki.comment.added',
+			'wiki.page.published',
+			'wiki.space.updated',
+		]);
+		const request = ctxWith(
+			{ source: 'roadmarq', workspace: 'ws-1', feedbackScopeType: 'FEEDBACK_REQUEST' },
+			async () => rows,
+		);
+		expect(await loadOptions.getWebhookEventTypes.call(request.ctx)).toEqual([]);
+	});
+
+	it('eventTypeOptionsFilteredByScope: no scope or the whole workspace keeps every event; a row without scopes is kept', () => {
+		const all = webhookEventTypeOptions(rows, 'codexum').map((o) => o.value);
+		expect(webhookEventTypeOptions(rows, 'codexum', 'WORKSPACE').map((o) => o.value)).toEqual(all);
+		expect(webhookEventTypeOptions(rows, 'codexum', '').map((o) => o.value)).toEqual(all);
+		expect(
+			webhookEventTypeOptions(
+				[{ type: 'wiki.page.created', product: 'codexum' }],
+				'codexum',
+				'WIKI_PAGE',
+			).map((o) => o.value),
+		).toEqual(['wiki.page.created']);
+	});
+
+	/*
+	 * PM's own rules (dutify-pm ProductEventScopes): page, comment, reaction and attachment events
+	 * take a space or a page; space, settings and public-wiki events take a space only. Board,
+	 * changelog, taxonomy and settings events take a board only; request and vote events a board
+	 * or a request; bug events a board or a bug; comment events any of the three.
+	 */
+	it('scopeFilterMatchesPmRules over the /event-types answer of PM (fixture)', () => {
+		const types = (product: string, scope: string) =>
+			webhookEventTypeOptions(eventTypesFixture, product, scope).map((o) => String(o.value));
+		const pageLevel = /^wiki\.(page|comment|reaction|attachment)\./;
+		const wiki = types('codexum', 'WORKSPACE');
+		expect(wiki.length).toBeGreaterThan(10);
+		expect(types('codexum', 'WIKI_PAGE')).toEqual(wiki.filter((t) => pageLevel.test(t)));
+		expect(types('codexum', 'WIKI_SPACE')).toEqual(wiki);
+		expect(types('codexum', 'WIKI_PAGE')).not.toContain('wiki.space.updated');
+
+		const feedback = types('roadmarq', 'WORKSPACE');
+		expect(types('roadmarq', 'FEEDBACK_BOARD')).toEqual(feedback);
+		expect(types('roadmarq', 'FEEDBACK_REQUEST')).toEqual(
+			feedback.filter((t) => /^feedback\.(request|vote|comment)\./.test(t)),
+		);
+		expect(types('roadmarq', 'FEEDBACK_BUG')).toEqual(
+			feedback.filter((t) => /^feedback\.(bug|comment)\./.test(t)),
+		);
+	});
+
+	it('the wiki and Roadmarq event fields reload when their scope changes', async () => {
+		const { DutifyTrigger } = await import('../../nodes/DutifyTrigger/DutifyTrigger.node');
+		const props = new DutifyTrigger().description.properties;
+		for (const [events, scope] of [
+			['wikiEvents', 'wikiScopeType'],
+			['feedbackEvents', 'feedbackScopeType'],
+		]) {
+			const field = props.find((p) => p.name === events);
+			expect(field?.typeOptions?.loadOptionsDependsOn).toEqual(
+				expect.arrayContaining(['source', 'workspace.value', scope]),
+			);
+		}
 	});
 
 	it('getWebhookEventTypes answers [] without a workspace (no call) or on a 403', async () => {

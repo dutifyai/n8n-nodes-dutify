@@ -41,6 +41,11 @@ export interface ListedWebhook {
 	active: boolean;
 	/** Whether it is narrowed to a space, folder, list or task. */
 	scoped: boolean;
+	/** The scope type and the identifier the service stored for it (canonical, e.g. a UUID). */
+	scopeType?: string;
+	scopeEntityIdentifier?: string;
+	/** Why the service paused it, as a code (e.g. `SCOPE_ENTITY_GONE`). */
+	pauseReason?: string;
 	createdAt?: string;
 }
 
@@ -49,6 +54,10 @@ interface PmWebhookRow {
 	url?: string;
 	active?: boolean;
 	scopeType?: string | null;
+	scopeEntityIdentifier?: string | null;
+	/** PM describes known codes in `pauseReason` and always gives the code in `pauseReasonCode`. */
+	pauseReason?: string | null;
+	pauseReasonCode?: string | null;
 	createdAt?: string;
 }
 
@@ -96,6 +105,9 @@ const pm: WebhookSource = {
 				url,
 				active: row.active !== false,
 				scoped: Boolean(row.scopeType),
+				scopeType: row.scopeType ?? undefined,
+				scopeEntityIdentifier: row.scopeEntityIdentifier ?? undefined,
+				pauseReason: row.pauseReasonCode ?? row.pauseReason ?? undefined,
 				createdAt: row.createdAt,
 			}));
 	},

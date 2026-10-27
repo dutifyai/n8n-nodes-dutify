@@ -748,15 +748,28 @@ interface WebhookEventTypeRow {
 	type?: string;
 	product?: string;
 	description?: string;
+	/** The `scopeType` values a subscription with this type may use (PM's ProductEventScopes). */
+	scopes?: string[];
 }
 
-/** The event types of one product (`pm`, `codexum` or `roadmarq`), sorted by their API name. */
+/** The trigger's scope value for "no scope": every event of the product fits it. */
+const WHOLE_WORKSPACE = 'WORKSPACE';
+
+/**
+ * The event types of one product (`pm`, `codexum` or `roadmarq`), sorted by their API name. With
+ * a `scope` (a scope type such as `WIKI_PAGE`), only the types PM lets that scope narrow: PM
+ * refuses the others at activation. A row that lists no scopes is kept; PM judges it.
+ */
 export function webhookEventTypeOptions(
 	rows: WebhookEventTypeRow[] | null | undefined,
 	product: string,
+	scope?: string,
 ): INodePropertyOptions[] {
+	const narrowed = Boolean(scope) && scope !== WHOLE_WORKSPACE;
+
 	return (Array.isArray(rows) ? rows : [])
 		.filter((row) => row.type && row.product === product)
+		.filter((row) => !narrowed || !Array.isArray(row.scopes) || row.scopes.includes(String(scope)))
 		.map((row) => ({
 			name: String(row.type),
 			value: String(row.type),
@@ -960,6 +973,12 @@ export const listSearch: NonNullable<NonNullable<INodeType['methods']>['listSear
 	},
 };
 
+/** The Dutify Trigger's scope field per product source. */
+const TRIGGER_SCOPE_FIELD: Record<string, string> = {
+	codexum: 'wikiScopeType',
+	roadmarq: 'feedbackScopeType',
+};
+
 export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOptions']> = {
 	async getSpaces(this: ILoadOptionsFunctions) {
 		const context = await loadContext(this);
@@ -1157,13 +1176,18 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	async getPmEventTypes(this: ILoadOptionsFunctions) {
 		return pmEventTypeOptions();
 	},
-	/** The Dutify Trigger's events for its source; the source names the product. */
+	/**
+	 * The Dutify Trigger's events for its source; the source names the product, and its scope
+	 * field narrows the list to the events that scope can take.
+	 */
 	async getWebhookEventTypes(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);
 		if (!workspace) {
 			return [];
 		}
 		const product = optionalParam(this, 'source') || 'pm';
+		const scopeField = TRIGGER_SCOPE_FIELD[product];
+		const scope = scopeField ? optionalParam(this, scopeField) : '';
 
 		return await orNoneWhenForbidden(async () =>
 			webhookEventTypeOptions(
@@ -1171,6 +1195,7 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 					| WebhookEventTypeRow[]
 					| null,
 				product,
+				scope,
 			),
 		);
 	},

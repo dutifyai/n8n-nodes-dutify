@@ -145,6 +145,29 @@ function text(value: unknown): string | undefined {
 }
 
 /**
+ * The HTTP status, Dutify's own `message` and its error code (`code` or PM's `errorCode`) of a
+ * request failure, raw or already wrapped by `dutifyRequest`.
+ */
+export function dutifyErrorOf(error: unknown): {
+	httpCode?: string;
+	message?: string;
+	code?: string;
+} {
+	const found = inspect(error);
+	// `toNodeError` keeps Dutify's error body as the NodeApiError's `errorResponse`.
+	const body =
+		found.body ?? (error instanceof NodeApiError ? asObject(error.errorResponse) : undefined);
+	const httpCode = found.httpCode;
+	const code = body?.code ?? body?.errorCode;
+
+	return {
+		httpCode,
+		message: body ? (text(body.message) ?? text(body.error) ?? text(body.detail)) : undefined,
+		code: typeof code === 'string' && code !== '' ? code : undefined,
+	};
+}
+
+/**
  * Wraps any request failure as a NodeApiError that shows Dutify's own `message`, with
  * `code`, `field` and `validOptions` in the description so the user can fix the input.
  */

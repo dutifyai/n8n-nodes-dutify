@@ -190,9 +190,27 @@ describe('PM webhook source', () => {
 					url: URL,
 					active: false,
 					scoped: true,
+					scopeType: 'SPACE',
+					scopeEntityIdentifier: 'spc_1',
 					createdAt: '2026-10-20T10:00:00Z',
 				},
 			]);
+		});
+
+		it('carries the pause reason code (pauseReasonCode; pauseReason holds a description)', () => {
+			const [hook] = pm.listAtUrl(
+				[
+					{
+						identifier: 'whk_9',
+						url: URL,
+						active: false,
+						pauseReason: 'Delivery repeatedly failed for an extended period.',
+						pauseReasonCode: 'SUSTAINED_DELIVERY_FAILURES',
+					},
+				],
+				URL,
+			);
+			expect(hook.pauseReason).toBe('SUSTAINED_DELIVERY_FAILURES');
 		});
 
 		it('counts a row without an active flag as active (PM sends it; older rows may not)', () => {
@@ -995,6 +1013,187 @@ describe('codexum and roadmarq sources (PM subscriptions with product events)', 
 		}
 	});
 
+	it('shortKeysUppercased: a typed fr-12 or bg-3 is sent as FR-12 / BG-3; an ID is sent as typed', async () => {
+		for (const [scopeType, param, typed, sent] of [
+			['FEEDBACK_REQUEST', 'feedbackScopeRequest', ' fr-12 ', 'FR-12'],
+			['FEEDBACK_BUG', 'feedbackScopeBug', 'bg-3', 'BG-3'],
+			[
+				'FEEDBACK_REQUEST',
+				'feedbackScopeRequest',
+				'0b9d7c1e-2f3a-4b5c-9d8e-7f6a5b4c3d2e',
+				'0b9d7c1e-2f3a-4b5c-9d8e-7f6a5b4c3d2e',
+			],
+		]) {
+			const { ctx, calls } = hookContext({
+				params: {
+					source: 'roadmarq',
+					feedbackEvents: ['feedback.comment.added'],
+					feedbackScopeType: scopeType,
+					[param]: typed,
+				},
+				responses: [[], { identifier: 'whk_new' }],
+			});
+			await hooks.create.call(ctx);
+			expect(posted(calls)).toMatchObject({ scopeType, scopeEntityIdentifier: sent });
+		}
+	});
+
+	const pmRefusal = (status: number, message: string, errorCode: string) =>
+		Object.assign(new Error(message), {
+			httpCode: String(status),
+			response: { body: { message, errorCode } },
+		});
+
+	it('activationRefusalReadable: a 400 from PM names PM message, keeps the status and says how to fix it', async () => {
+		const { ctx, staticData } = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.space.updated'],
+				wikiScopeType: 'WIKI_PAGE',
+				wikiScopePage: 'pg-1',
+			},
+			responses: [
+				[],
+				pmRefusal(400, 'wiki.space.updated cannot be scoped to WIKI_PAGE', 'VALIDATION_ERROR'),
+			],
+		});
+		const error = (await hooks.create.call(ctx).catch((e: unknown) => e)) as NodeApiError;
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect(error.httpCode).toBe('400');
+		expect(error.message).toMatch(/^Dutify refused the trigger's webhook: /);
+		expect(error.message).toContain('wiki.space.updated cannot be scoped to WIKI_PAGE');
+		expect(error.description).toMatch(/VALIDATION_ERROR/);
+		expect(error.description).toMatch(/events|scope/i);
+		expect(staticData).toEqual({});
+	});
+
+	it('activationRefusalReadable: a 403 WEBHOOK_SCOPE_REQUIRES_USER on reuse says to use a personal API key', async () => {
+		const { ctx, calls } = hookContext({
+			params: {
+				source: 'roadmarq',
+				feedbackEvents: ['feedback.request.created'],
+				feedbackScopeType: 'FEEDBACK_BOARD',
+				feedbackScopeBoard: 'public-roadmap',
+			},
+			responses: [
+				[{ identifier: 'whk_1', url: HOOK_URL, active: true }],
+				pmRefusal(
+					403,
+					'A workspace API key cannot hold a webhook scoped to FEEDBACK_BOARD. Use it without a scope, or use a personal API key or sign in.',
+					'WEBHOOK_SCOPE_REQUIRES_USER',
+				),
+			],
+		});
+		const error = (await hooks.create.call(ctx).catch((e: unknown) => e)) as NodeApiError;
+		expect(error).toBeInstanceOf(NodeApiError);
+		expect(error.httpCode).toBe('403');
+		expect(error.message).toMatch(/^Dutify refused the trigger's webhook: A workspace API key/);
+		expect(error.description).toMatch(/WEBHOOK_SCOPE_REQUIRES_USER/);
+		expect(error.description).toMatch(/personal API key/);
+		expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+	});
+
+	it('scopeEntityGone: a webhook PM paused because its scoped item was deleted is not resumed with the same scope', async () => {
+		const { ctx, calls } = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.page.updated'],
+				wikiScopeType: 'WIKI_SPACE',
+				wikiScopeSpace: 'eng',
+			},
+			staticData: { webhookId: 'whk_1', secret: 'old', workspace: 'ws-1', source: 'codexum' },
+			responses: [
+				[
+					{
+						identifier: 'whk_1',
+						url: HOOK_URL,
+						active: false,
+						scopeType: 'WIKI_SPACE',
+						scopeEntityIdentifier: 'ENG',
+						pauseReason: 'SCOPE_ENTITY_GONE',
+						pauseReasonCode: 'SCOPE_ENTITY_GONE',
+					},
+				],
+			],
+		});
+		await expect(hooks.create.call(ctx)).rejects.toThrow(
+			/scoped .*was deleted.*choose another scope/i,
+		);
+		expect(calls.map((c) => c.method)).toEqual(['GET']);
+	});
+
+	it('scopeEntityGone: with a new scope the paused webhook is resumed with it', async () => {
+		const { ctx, calls } = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.page.updated'],
+				wikiScopeType: 'WIKI_SPACE',
+				wikiScopeSpace: 'OPS',
+			},
+			responses: [
+				[
+					{
+						identifier: 'whk_1',
+						url: HOOK_URL,
+						active: false,
+						scopeType: 'WIKI_SPACE',
+						scopeEntityIdentifier: 'ENG',
+						pauseReasonCode: 'SCOPE_ENTITY_GONE',
+					},
+				],
+				{ identifier: 'whk_1', active: true },
+			],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls[1]).toMatchObject({
+			method: 'PUT',
+			body: { scopeType: 'WIKI_SPACE', scopeEntityIdentifier: 'OPS', active: true },
+		});
+	});
+
+	it('scopeEntityGone: a resume answered 404 "Scope entity not found" says the item was deleted, and creates nothing', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: {
+				source: 'roadmarq',
+				feedbackEvents: ['feedback.comment.added'],
+				feedbackScopeType: 'FEEDBACK_REQUEST',
+				feedbackScopeRequest: 'FR-12',
+			},
+			staticData: { webhookId: 'whk_1', secret: 'old', workspace: 'ws-1', source: 'roadmarq' },
+			responses: [
+				[
+					{
+						identifier: 'whk_1',
+						url: HOOK_URL,
+						active: false,
+						scopeType: 'FEEDBACK_REQUEST',
+						scopeEntityIdentifier: '6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f',
+					},
+				],
+				pmRefusal(404, 'Scope entity not found', 'WEBHOOK_SCOPE_ENTITY_NOT_FOUND'),
+			],
+		});
+		await expect(hooks.create.call(ctx)).rejects.toThrow(
+			/scoped .*was deleted.*choose another scope/i,
+		);
+		expect(calls.map((c) => c.method)).toEqual(['GET', 'PUT']);
+		expect(staticData).toEqual({});
+	});
+
+	it('a new webhook whose scope PM cannot find (404) says the item was not found', async () => {
+		const { ctx, calls } = hookContext({
+			params: {
+				source: 'roadmarq',
+				feedbackEvents: ['feedback.comment.added'],
+				feedbackScopeType: 'FEEDBACK_BUG',
+				feedbackScopeBug: 'BG-999',
+			},
+			responses: [[], pmRefusal(404, 'Scope entity not found', 'WEBHOOK_SCOPE_ENTITY_NOT_FOUND')],
+		});
+		await expect(hooks.create.call(ctx)).rejects.toThrow(/BG-999.*not found/i);
+		expect(calls.map((c) => c.method)).toEqual(['GET', 'POST']);
+	});
+
 	it('never sends the security-bug opt-in (Dutify refuses it for API keys)', async () => {
 		const { ctx, calls } = hookContext({
 			params: { source: 'roadmarq', feedbackEvents: ['feedback.bug.created'] },
@@ -1675,6 +1874,11 @@ describe('description', () => {
 			});
 		}
 		expect(prop('feedbackScopeBoard').typeOptions?.loadOptionsMethod).toBe('getBoards');
+	});
+
+	it('the Roadmarq scope hint says a scope needs a personal API key (workspace and integration keys get 403)', () => {
+		expect(prop('feedbackScopeType').hint).toMatch(/personal API key/);
+		expect(prop('feedbackScopeType').hint).toMatch(/workspace|integration/i);
 	});
 
 	it('has no security-bug opt-in field (Dutify refuses it for API keys)', () => {
