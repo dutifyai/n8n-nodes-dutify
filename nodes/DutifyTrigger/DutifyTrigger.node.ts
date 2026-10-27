@@ -10,6 +10,7 @@ import type {
 	IWebhookResponseData,
 } from 'n8n-workflow';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
+import { idPicker } from '../../shared/fieldHelpers';
 import { workspaceField } from '../../shared/fields';
 import { dutifyRequest } from '../../shared/transport';
 import type { ParamReader, RequestSpec } from '../../shared/types';
@@ -55,6 +56,156 @@ const forSources =
 
 const forPm = forSources('pm');
 const forMeeting = forSources('meeting');
+const forCodexum = forSources('codexum');
+const forRoadmarq = forSources('roadmarq');
+
+const WORKSPACE_SCOPE = 'WORKSPACE';
+
+/**
+ * The trigger fields of a product source (wiki or feature requests): its events and its scope
+ * selector, and the field holding the target of each scope type.
+ */
+interface ProductSourceFields {
+	events: string;
+	scopeType: string;
+	targets: Record<string, string>;
+}
+
+const PRODUCT_SOURCES: Record<string, ProductSourceFields> = {
+	codexum: {
+		events: 'wikiEvents',
+		scopeType: 'wikiScopeType',
+		targets: { WIKI_SPACE: 'wikiScopeSpace', WIKI_PAGE: 'wikiScopePage' },
+	},
+	roadmarq: {
+		events: 'feedbackEvents',
+		scopeType: 'feedbackScopeType',
+		targets: {
+			FEEDBACK_BOARD: 'feedbackScopeBoard',
+			FEEDBACK_REQUEST: 'feedbackScopeRequest',
+			FEEDBACK_BUG: 'feedbackScopeBug',
+		},
+	},
+};
+
+/** Event types of a product source, loaded from PM's `/webhooks/event-types` for that product. */
+const productEventsField = (name: string): INodeProperties => ({
+	displayName: 'Event Names or IDs',
+	name,
+	type: 'multiOptions',
+	typeOptions: {
+		loadOptionsMethod: 'getWebhookEventTypes',
+		loadOptionsDependsOn: ['source', 'workspace.value'],
+	},
+	default: [],
+	required: true,
+	description:
+		'The events that start the workflow. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+});
+
+const SCOPE_HINT =
+	'Dutify delivers an event only while the person who owns the API key can see the item';
+
+const wikiFields: INodeProperties[] = [
+	productEventsField('wikiEvents'),
+	{
+		displayName: 'Scope',
+		name: 'wikiScopeType',
+		type: 'options',
+		options: [
+			{ name: 'Page', value: 'WIKI_PAGE', description: 'A page and the pages below it' },
+			{ name: 'Space', value: 'WIKI_SPACE' },
+			{ name: 'Whole Workspace', value: WORKSPACE_SCOPE },
+		],
+		default: WORKSPACE_SCOPE,
+		description: 'Where the events must happen to be delivered',
+		hint: SCOPE_HINT,
+	},
+	idPicker(
+		'Space Name or ID',
+		'wikiScopeSpace',
+		'getWikiSpaces',
+		{ field: 'wikiScopeType', value: 'WIKI_SPACE' },
+		['workspace.value'],
+	),
+	{
+		displayName: 'Page ID',
+		name: 'wikiScopePage',
+		type: 'string',
+		default: '',
+		required: true,
+		displayOptions: { show: { wikiScopeType: ['WIKI_PAGE'] } },
+		description: 'The ID of the wiki page; its sub-pages are included',
+	},
+];
+
+const feedbackFields: INodeProperties[] = [
+	productEventsField('feedbackEvents'),
+	{
+		displayName: 'Scope',
+		name: 'feedbackScopeType',
+		type: 'options',
+		options: [
+			{ name: 'Board', value: 'FEEDBACK_BOARD' },
+			{ name: 'Bug Report', value: 'FEEDBACK_BUG' },
+			{ name: 'Feature Request', value: 'FEEDBACK_REQUEST' },
+			{ name: 'Whole Workspace', value: WORKSPACE_SCOPE },
+		],
+		default: WORKSPACE_SCOPE,
+		description:
+			'Where the events must happen to be delivered. Security bug reports are never delivered to a trigger.',
+		hint: SCOPE_HINT,
+	},
+	idPicker(
+		'Board Name or ID',
+		'feedbackScopeBoard',
+		'getBoards',
+		{ field: 'feedbackScopeType', value: 'FEEDBACK_BOARD' },
+		['workspace.value'],
+	),
+	{
+		displayName: 'Feature Request',
+		name: 'feedbackScopeRequest',
+		type: 'string',
+		default: '',
+		required: true,
+		placeholder: 'FR-12',
+		displayOptions: { show: { feedbackScopeType: ['FEEDBACK_REQUEST'] } },
+		description: 'Short key such as FR-12, or the request ID',
+	},
+	{
+		displayName: 'Bug Report',
+		name: 'feedbackScopeBug',
+		type: 'string',
+		default: '',
+		required: true,
+		placeholder: 'BG-3',
+		displayOptions: { show: { feedbackScopeType: ['FEEDBACK_BUG'] } },
+		description: 'Short key such as BG-3, or the bug ID',
+	},
+];
+
+/** The events and scope of a wiki or feature-request trigger, as a PM subscription body. */
+function productSourceConfig(ctx: IHookFunctions, fields: ProductSourceFields): IDataObject {
+	const eventTypes = ctx.getNodeParameter(fields.events, []) as string[];
+	if (!Array.isArray(eventTypes) || eventTypes.length === 0) {
+		throw new ApplicationError('Choose at least one event to trigger on');
+	}
+	const scopeType = String(ctx.getNodeParameter(fields.scopeType, WORKSPACE_SCOPE));
+	if (scopeType === WORKSPACE_SCOPE) {
+		return { eventTypes };
+	}
+	const targetField = fields.targets[scopeType];
+	if (!targetField) {
+		throw new ApplicationError(`"${scopeType}" is not a webhook scope`);
+	}
+	const target = String(ctx.getNodeParameter(targetField, '', { extractValue: true }) ?? '').trim();
+	if (!target) {
+		throw new ApplicationError('Choose what the webhook scope applies to');
+	}
+
+	return { eventTypes, scopeType, scopeEntityIdentifier: target };
+}
 
 function sourceOf(ctx: IHookFunctions | IWebhookFunctions): WebhookSource {
 	const name = sourceNameOf(ctx);
@@ -127,7 +278,11 @@ async function listWebhooks(
 	source: WebhookSource,
 	workspace: string,
 ): Promise<unknown> {
-	return await dutifyRequest.call(ctx, source.list({ workspace }), workspace);
+	return await dutifyRequest.call(
+		ctx,
+		source.list({ workspace, url: webhookUrlOf(ctx) }),
+		workspace,
+	);
 }
 
 /**
@@ -146,10 +301,15 @@ function pickReusable(atUrl: ListedWebhook[]): ListedWebhook | undefined {
  * scope for PM, where a task key scope is resolved to its task ID.
  */
 async function sourceConfig(ctx: IHookFunctions, workspace: string): Promise<IDataObject> {
-	if (ctx.getNodeParameter('source', 'pm') === 'meeting') {
+	const sourceName = String(ctx.getNodeParameter('source', 'pm'));
+	if (sourceName === 'meeting') {
 		const sections = ctx.getNodeParameter('sections', DEFAULT_MEETING_SECTIONS) as string[];
 
 		return { workspace, sections: Array.isArray(sections) ? sections : DEFAULT_MEETING_SECTIONS };
+	}
+	const product = PRODUCT_SOURCES[sourceName];
+	if (product) {
+		return { workspace, ...productSourceConfig(ctx, product) };
 	}
 	const eventTypes = ctx.getNodeParameter('events', []) as string[];
 	if (!Array.isArray(eventTypes) || eventTypes.length === 0) {
@@ -195,8 +355,12 @@ export class DutifyTrigger implements INodeType {
 				name: 'source',
 				type: 'options',
 				noDataExpression: true,
-				// Can grow `codexum` (wiki) and `roadmarq` (feature requests) later.
 				options: [
+					{
+						name: 'Codexum (Wiki)',
+						value: 'codexum',
+						description: 'Wiki page, space, comment, reaction and attachment events',
+					},
 					{
 						name: 'Meeting Processed',
 						value: 'meeting',
@@ -208,12 +372,19 @@ export class DutifyTrigger implements INodeType {
 						value: 'pm',
 						description: 'Task, comment, list, space and workspace events',
 					},
+					{
+						name: 'Roadmarq (Feature Requests)',
+						value: 'roadmarq',
+						description: 'Feature request, vote, bug report, comment and changelog events',
+					},
 				],
 				default: 'pm',
 				description: 'The Dutify service whose events start the workflow',
 			},
-			forSources('pm', 'meeting')(workspaceField),
+			forSources('pm', 'meeting', 'codexum', 'roadmarq')(workspaceField),
 			forMeeting(sectionsField),
+			...wikiFields.map(forCodexum),
+			...feedbackFields.map(forRoadmarq),
 			forPm({
 				displayName: 'Events',
 				name: 'events',

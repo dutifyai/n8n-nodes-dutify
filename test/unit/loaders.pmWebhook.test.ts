@@ -1,3 +1,4 @@
+import type { IHttpRequestOptions, ILoadOptionsFunctions } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import {
 	loadOptions,
@@ -6,6 +7,8 @@ import {
 	pmWebhookDeliveryOptions,
 	pmWebhookOptions,
 	pmWebhooksSpec,
+	webhookEventTypeOptions,
+	webhookEventTypesSpec,
 } from '../../nodes/Dutify/loaders';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 
@@ -13,6 +16,111 @@ describe('PM event type picker', () => {
 	it('serves the shared static list, there being no catalog endpoint for it', () => {
 		expect(pmEventTypeOptions()).toEqual(PM_EVENT_OPTIONS);
 		expect(typeof loadOptions.getPmEventTypes).toBe('function');
+	});
+});
+
+describe('webhook event types from /event-types', () => {
+	const rows = [
+		{ type: 'task-created', product: 'pm', description: 'A task was created.', scopes: ['SPACE'] },
+		{
+			type: 'wiki.page.published',
+			product: 'codexum',
+			description: 'A wiki page was published.',
+			scopes: ['WIKI_SPACE', 'WIKI_PAGE'],
+		},
+		{
+			type: 'wiki.comment.added',
+			product: 'codexum',
+			description: 'A comment was added to a wiki page.',
+			scopes: ['WIKI_SPACE', 'WIKI_PAGE'],
+		},
+		{
+			type: 'feedback.request.created',
+			product: 'roadmarq',
+			description: 'A feature request was created.',
+			scopes: ['FEEDBACK_BOARD'],
+		},
+		{ product: 'codexum', description: 'no type' },
+	];
+
+	it('asks GET /mp/api/v1/workspaces/{ws}/webhooks/event-types', () => {
+		expect(webhookEventTypesSpec('ws 1')).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws%201/webhooks/event-types',
+		});
+	});
+
+	it('eventTypeOptionsFilteredByProduct: options of one product, valued with the API name, sorted', () => {
+		expect(webhookEventTypeOptions(rows, 'codexum')).toEqual([
+			{
+				name: 'wiki.comment.added',
+				value: 'wiki.comment.added',
+				description: 'A comment was added to a wiki page.',
+			},
+			{
+				name: 'wiki.page.published',
+				value: 'wiki.page.published',
+				description: 'A wiki page was published.',
+			},
+		]);
+		expect(webhookEventTypeOptions(rows, 'roadmarq').map((o) => o.value)).toEqual([
+			'feedback.request.created',
+		]);
+		expect(webhookEventTypeOptions(rows, 'nope')).toEqual([]);
+		expect(webhookEventTypeOptions(null, 'codexum')).toEqual([]);
+	});
+
+	const ctxWith = (params: Record<string, unknown>, answer: () => Promise<unknown>) => {
+		const requests: IHttpRequestOptions[] = [];
+		const ctx = {
+			getNodeParameter: (name: string, fallback?: unknown) =>
+				Object.prototype.hasOwnProperty.call(params, name) ? params[name] : fallback,
+			getCurrentNodeParameter: (name: string) => params[name],
+			getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
+			getNode: () => ({
+				name: 'Dutify Trigger',
+				type: 'n8n-nodes-dutify.dutifyTrigger',
+				typeVersion: 1,
+			}),
+			helpers: {
+				httpRequestWithAuthentication: async (_cred: string, options: IHttpRequestOptions) => {
+					requests.push(options);
+
+					return await answer();
+				},
+			},
+		} as unknown as ILoadOptionsFunctions;
+
+		return { ctx, requests };
+	};
+
+	it('getWebhookEventTypes serves the events of the trigger source chosen', async () => {
+		const wiki = ctxWith({ source: 'codexum', workspace: 'ws-1' }, async () => rows);
+		expect((await loadOptions.getWebhookEventTypes.call(wiki.ctx)).map((o) => o.value)).toEqual([
+			'wiki.comment.added',
+			'wiki.page.published',
+		]);
+		expect(wiki.requests[0].url).toBe(
+			'https://dutify.test/mp/api/v1/workspaces/ws-1/webhooks/event-types',
+		);
+
+		const fr = ctxWith({ source: 'roadmarq', workspace: 'ws-1' }, async () => rows);
+		expect((await loadOptions.getWebhookEventTypes.call(fr.ctx)).map((o) => o.value)).toEqual([
+			'feedback.request.created',
+		]);
+	});
+
+	it('getWebhookEventTypes answers [] without a workspace (no call) or on a 403', async () => {
+		const none = ctxWith({ source: 'codexum', workspace: '' }, async () => {
+			throw new Error('must not be called');
+		});
+		expect(await loadOptions.getWebhookEventTypes.call(none.ctx)).toEqual([]);
+		expect(none.requests).toEqual([]);
+		const forbidden = Object.assign(new Error('Forbidden'), { httpCode: '403' });
+		const denied = ctxWith({ source: 'codexum', workspace: 'ws-1' }, async () => {
+			throw forbidden;
+		});
+		expect(await loadOptions.getWebhookEventTypes.call(denied.ctx)).toEqual([]);
 	});
 });
 

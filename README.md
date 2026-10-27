@@ -4,9 +4,9 @@ n8n community nodes for [Dutify](https://dutify.ai): Project Management, Codexum
 Roadmarq (feature requests and bugs) and Hub (meeting recordings).
 
 - **Dutify** — an action node with one resource per Dutify object (see the list below).
-- **Dutify Trigger** — starts a workflow on Project Management events, or when a Hub meeting
-  finishes processing. Either way it is delivered by a Dutify webhook that the trigger registers
-  and removes itself.
+- **Dutify Trigger** — starts a workflow on Project Management, Codexum (wiki) or Roadmarq
+  (feature request) events, or when a Hub meeting finishes processing. Every event is delivered
+  by a Dutify webhook that the trigger registers and removes itself.
 
 The package has no runtime dependencies.
 
@@ -59,12 +59,27 @@ fails with a 400, and the n8n error lists the valid options.
 
 ## Trigger setup
 
-The trigger has two sources:
+The trigger has four sources:
 
-| Source                 | Starts the workflow when                                                                     | Settings                                                                                                                                                                      | Signature header          |
-| ---------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| **Project Management** | a PM event happens (task created, comment added, …)                                          | one or more **Events**; optional scope (space, folder, list or task)                                                                                                          | `X-Webhook-Signature-256` |
-| **Meeting Processed**  | a Hub meeting of the workspace finishes processing (an upload, a bot or a desktop recording) | **Sections** of the meeting to send: summary, key points, action items and tasks by default; also transcript, notes, insights, themes, scores, speakers, tags, enhanced notes | `X-Dutify-Signature`      |
+| Source                          | Starts the workflow when                                                                     | Settings                                                                                                                                                                      | Signature header          |
+| ------------------------------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Project Management**          | a PM event happens (task created, comment added, …)                                          | one or more **Events**; optional scope (space, folder, list or task)                                                                                                          | `X-Webhook-Signature-256` |
+| **Codexum (Wiki)**              | a wiki event happens (`wiki.page.published`, `wiki.comment.added`, …)                        | one or more **Events**; optional scope (a wiki space, or a page and the pages below it)                                                                                       | `X-Webhook-Signature-256` |
+| **Roadmarq (Feature Requests)** | a feature-request event happens (`feedback.request.created`, `feedback.bug.created`, …)      | one or more **Events**; optional scope (a board, a feature request such as `FR-12`, or a bug report)                                                                          | `X-Webhook-Signature-256` |
+| **Meeting Processed**           | a Hub meeting of the workspace finishes processing (an upload, a bot or a desktop recording) | **Sections** of the meeting to send: summary, key points, action items and tasks by default; also transcript, notes, insights, themes, scores, speakers, tags, enhanced notes | `X-Dutify-Signature`      |
+
+The wiki and feature-request events are PM webhooks as well. The trigger loads their list from
+Dutify, so new events show up without a node update. Their deliveries share PM's envelope:
+`{version, id, type, timestamp, workspaceIdentifier, source, eventId, data}`.
+
+- `source` is `pm`, `codexum` or `roadmarq`.
+- `eventId` is the same on a retry or a replay. Use it to drop duplicates.
+- `data` is a thin summary of the item: IDs, keys, title, status and the actor. It carries no
+  page content, comment text or emails. Fetch the item with the Dutify node if you need more.
+
+Dutify sends an event only while the key's user can still see the item. The key also needs the
+product's read scope (wiki or feature requests). Security bug reports are never delivered to the
+trigger: only a workspace admin signed in to Dutify can opt a webhook in to them, never an API key.
 
 1. Add **Dutify Trigger**, pick the credential, the **Source**, the workspace and its settings.
 2. Click **Listen for test event** or activate the workflow. The trigger registers a webhook for
@@ -83,16 +98,18 @@ Delivery** on the trigger's webhook (it is named "n8n"): Hub sends your latest p
 of the workspace, marked `"test": true`. Hub allows 10 meeting webhooks per user and accepts only
 public `https://` URLs.
 
-n8n must be reachable from the internet for deliveries to arrive. Self-hosted instances need
-`WEBHOOK_URL` set to their public URL. If you change `WEBHOOK_URL` later, the trigger registers
+n8n must be reachable from the internet for deliveries to arrive. Dutify refuses a local n8n
+URL with 400 `WEBHOOK_URL_NOT_ALLOWED`, so the trigger cannot register one. That covers
+`localhost`, a private or link-local IP such as `192.168.x.x`, `10.x.x.x` or `127.0.0.1`, a bare
+host name, and `*.svc` / `*.cluster.local` names. To try the trigger on a local n8n, expose it
+through a public tunnel (for example ngrok or a Cloudflare tunnel) and set `WEBHOOK_URL` to the
+tunnel URL. Self-hosted instances need `WEBHOOK_URL` set to their public URL. If you change `WEBHOOK_URL` later, the trigger registers
 a new webhook at the new URL and leaves the old one registered at the old URL, where it keeps
 counting against the plan's webhook limit. Remove or pause the old one in Dutify (PM Webhook →
 Delete, or Update with Active off).
 
 ## Known gaps
 
-- **Trigger sources:** Project Management and Meeting Processed. Codexum (wiki) and Roadmarq
-  (feature request and bug) events are coming.
 - **Webhook lifecycle:** deactivating the trigger deletes its webhook. If PM refuses the
   delete (older Dutify versions answered 409 ENTITY_IN_USE for a webhook that had delivered),
   the trigger pauses the webhook instead. Activating again reuses a webhook already at that n8n

@@ -736,6 +736,35 @@ export function pmEventTypeOptions(): INodePropertyOptions[] {
 	return PM_EVENT_OPTIONS;
 }
 
+/** Every event type a PM webhook can subscribe to, across PM, the wiki and feature requests. */
+export function webhookEventTypesSpec(workspace: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: encodePath`/mp/api/v1/workspaces/${workspace}/webhooks/event-types`,
+	};
+}
+
+interface WebhookEventTypeRow {
+	type?: string;
+	product?: string;
+	description?: string;
+}
+
+/** The event types of one product (`pm`, `codexum` or `roadmarq`), sorted by their API name. */
+export function webhookEventTypeOptions(
+	rows: WebhookEventTypeRow[] | null | undefined,
+	product: string,
+): INodePropertyOptions[] {
+	return (Array.isArray(rows) ? rows : [])
+		.filter((row) => row.type && row.product === product)
+		.map((row) => ({
+			name: String(row.type),
+			value: String(row.type),
+			description: row.description ?? '',
+		}))
+		.sort((a, b) => a.value.localeCompare(b.value));
+}
+
 export function pmWebhooksSpec(workspace: string): RequestSpec {
 	return { method: 'GET', path: encodePath`/mp/api/v1/workspaces/${workspace}/webhooks` };
 }
@@ -1127,6 +1156,23 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 	},
 	async getPmEventTypes(this: ILoadOptionsFunctions) {
 		return pmEventTypeOptions();
+	},
+	/** The Dutify Trigger's events for its source; the source names the product. */
+	async getWebhookEventTypes(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+		const product = optionalParam(this, 'source') || 'pm';
+
+		return await orNoneWhenForbidden(async () =>
+			webhookEventTypeOptions(
+				(await dutifyRequest.call(this, webhookEventTypesSpec(workspace), workspace)) as
+					| WebhookEventTypeRow[]
+					| null,
+				product,
+			),
+		);
 	},
 	async getPmWebhooks(this: ILoadOptionsFunctions) {
 		const workspace = selectedWorkspace(this);

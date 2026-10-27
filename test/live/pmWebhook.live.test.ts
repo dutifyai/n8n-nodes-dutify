@@ -1,15 +1,21 @@
 import { sleep } from 'n8n-workflow';
 import type { IDataObject, NodeApiError } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { DutifyTrigger } from '../../nodes/DutifyTrigger/DutifyTrigger.node';
 import {
 	cleanupStack,
 	createTestSpace,
+	hookContextOf,
+	live,
 	liveDescribe,
 	loadOptionsOf,
+	rawRequest,
 	run,
 	runError,
 	runOne,
 	runId,
+	wikiKey,
+	workspaceLocator,
 } from './harness';
 
 /** Deliveries go to example.com (IANA-reserved, nobody receives them). */
@@ -149,6 +155,116 @@ liveDescribe('PM webhook — live', () => {
 
 		const replayed = await runOne('pmWebhook', 'replayDelivery', { webhook: fixture, delivery });
 		expect(replayed).toEqual(expect.any(Object));
+	});
+
+	it('eventTypesIncludeWikiAndFeedback: /event-types lists every product; the trigger picker filters', async () => {
+		const rows = (await rawRequest({
+			method: 'GET',
+			path: `/mp/api/v1/workspaces/${encodeURIComponent(live.workspace)}/webhooks/event-types`,
+		})) as Array<{ type: string; product: string; scopes: string[] }>;
+		const products = new Set(rows.map((r) => r.product));
+		expect([...products].sort()).toEqual(['codexum', 'pm', 'roadmarq']);
+		expect(rows.find((r) => r.type === 'wiki.page.published')?.scopes).toEqual(
+			expect.arrayContaining(['WIKI_SPACE', 'WIKI_PAGE']),
+		);
+		expect(rows.find((r) => r.type === 'feedback.request.created')?.scopes).toContain(
+			'FEEDBACK_BOARD',
+		);
+
+		const wiki = (await loadOptionsOf('getWebhookEventTypes', { source: 'codexum' })).map(
+			(o) => o.value,
+		);
+		expect(wiki).toContain('wiki.page.published');
+		expect(wiki.every((v) => String(v).startsWith('wiki.'))).toBe(true);
+		const feedback = (await loadOptionsOf('getWebhookEventTypes', { source: 'roadmarq' })).map(
+			(o) => o.value,
+		);
+		expect(feedback).toContain('feedback.request.created');
+		expect(feedback.every((v) => String(v).startsWith('feedback.'))).toBe(true);
+	});
+
+	it('createWikiScopedWebhookRoundTrip: the trigger registers a wiki-space webhook, PM names the scope, delete removes it', async ({
+		skip,
+	}) => {
+		const key = wikiKey('NH');
+		await runOne('codexumSpace', 'create', { key, name: `n8n-live hooks ${runId}` });
+		cleanup.add(
+			`wiki space ${key}`,
+			async () => await runOne('codexumSpace', 'delete', { space: key }),
+		);
+
+		const url = `${HOOK_PREFIX}wiki-${runId}`;
+		const staticData: IDataObject = {};
+		const ctx = hookContextOf(
+			{
+				source: 'codexum',
+				workspace: workspaceLocator(),
+				wikiEvents: ['wiki.page.published', 'wiki.page.created'],
+				wikiScopeType: 'WIKI_SPACE',
+				wikiScopeSpace: key,
+			},
+			url,
+			staticData,
+		);
+		const hooks = new DutifyTrigger().webhookMethods.default;
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
+		await hooks.create.call(ctx).catch(async (error: unknown) => {
+			if (isQuotaFull(error)) {
+				skip(`webhook quota full, cannot create: ${(error as Error).message}`);
+			}
+
+			return await Promise.reject(error);
+		});
+		const webhook = String(staticData.webhookId);
+		cleanup.add(`webhook ${webhook}`, async () => await runOne('pmWebhook', 'delete', { webhook }));
+		expect(staticData).toMatchObject({ source: 'codexum', workspace: live.workspace });
+
+		const stored = await runOne('pmWebhook', 'get', { webhook });
+		expect(stored).toMatchObject({
+			url,
+			scopeType: 'WIKI_SPACE',
+			scopeEntityIdentifier: key,
+			scopeEntityName: `n8n-live hooks ${runId}`,
+		});
+		expect([...(stored.eventTypes as string[])].sort()).toEqual([
+			'wiki.page.created',
+			'wiki.page.published',
+		]);
+		expect(stored.includeSecurityBugs ?? false).toBe(false);
+
+		const atUrl = (await rawRequest({
+			method: 'GET',
+			path: `/mp/api/v1/workspaces/${encodeURIComponent(live.workspace)}/webhooks`,
+			qs: { url },
+		})) as IDataObject[];
+		expect(atUrl.map((w) => w.identifier)).toEqual([webhook]);
+		expect(await hooks.checkExists.call(ctx)).toBe(true);
+
+		expect(await hooks.delete.call(ctx)).toBe(true);
+		expect(staticData).toEqual({});
+		const gone = await runError('pmWebhook', 'get', { webhook });
+		expect(gone.httpCode).toBe('404');
+	});
+
+	it('a local n8n URL is refused by Dutify (use a public tunnel)', async () => {
+		const ctx = hookContextOf(
+			{
+				source: 'codexum',
+				workspace: workspaceLocator(),
+				wikiEvents: ['wiki.page.published'],
+				wikiScopeType: 'WORKSPACE',
+			},
+			'http://localhost:5678/webhook/7f3a/webhook',
+			{},
+		);
+		const error = (await new DutifyTrigger().webhookMethods.default.create.call(ctx).then(
+			() => undefined,
+			(e: unknown) => e,
+		)) as NodeApiError | undefined;
+		expect(error?.httpCode).toBe('400');
+		expect(`${error?.message} ${error?.description}`).toMatch(
+			/WEBHOOK_URL_NOT_ALLOWED|not allowed/i,
+		);
 	});
 
 	it('delete of a webhook with deliveries succeeds', async ({ skip }) => {

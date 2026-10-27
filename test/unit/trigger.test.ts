@@ -12,6 +12,7 @@ import { DutifyTrigger } from '../../nodes/DutifyTrigger/DutifyTrigger.node';
 import { sources, verifySignature } from '../../nodes/DutifyTrigger/sources';
 import { PM_EVENT_TYPES } from '../../shared/pmEvents';
 import packageJson from '../../package.json';
+import { conformanceFixture } from './conformanceFixture';
 
 const sign = (secret: string, body: string | Buffer) =>
 	`sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
@@ -61,8 +62,21 @@ describe('PM webhook source', () => {
 	const pm = sources.pm;
 	const URL = 'https://n8n.example.com/webhook/abc/webhook';
 
-	it('the pm and meeting (Hub) sources exist', () => {
-		expect(Object.keys(sources)).toEqual(['pm', 'meeting']);
+	it('the pm, meeting (Hub), codexum (wiki) and roadmarq (feature requests) sources exist', () => {
+		expect(Object.keys(sources).sort()).toEqual(['codexum', 'meeting', 'pm', 'roadmarq']);
+	});
+
+	it('codexum and roadmarq use the PM subscription API and its signature header', () => {
+		expect(sources.codexum).toBe(pm);
+		expect(sources.roadmarq).toBe(pm);
+	});
+
+	it('listSendsUrlQuery: the list asks PM for the webhooks at the trigger URL only', () => {
+		expect(pm.list({ workspace: 'ws-1', url: URL })).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/workspaces/ws-1/webhooks',
+			qs: { url: URL },
+		});
 	});
 
 	it('checks the X-Webhook-Signature-256 header (lowercase, as n8n reads headers)', () => {
@@ -854,6 +868,206 @@ describe('create', () => {
 
 /* ---------- delete ---------- */
 
+/* ---------- Codexum (wiki) and Roadmarq (feature requests) sources ---------- */
+
+describe('codexum and roadmarq sources (PM subscriptions with product events)', () => {
+	const posted = (calls: Recorded[]) => calls.find((c) => c.method === 'POST')?.body as IDataObject;
+
+	it('checkExists and create list only the webhooks at the trigger URL (?url=)', async () => {
+		const exists = hookContext({
+			params: { source: 'codexum', wikiEvents: ['wiki.page.published'] },
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1', source: 'codexum' },
+			responses: [[{ identifier: 'whk_1', url: HOOK_URL, active: true }]],
+		});
+		expect(await hooks.checkExists.call(exists.ctx)).toBe(true);
+		expect(exists.calls[0].url).toBe(LIST_PATH);
+		expect(exists.calls[0].qs).toEqual({ url: HOOK_URL });
+
+		const created = hookContext({ responses: [[], { identifier: 'whk_new' }] });
+		await hooks.create.call(created.ctx);
+		expect(created.calls[0].method).toBe('GET');
+		expect(created.calls[0].qs).toEqual({ url: HOOK_URL });
+	});
+
+	it('still filters the list by URL itself, for a server that ignores ?url=', async () => {
+		const { ctx } = hookContext({
+			staticData: { webhookId: 'whk_1', secret: 'sek', workspace: 'ws-1', source: 'pm' },
+			responses: [[{ identifier: 'whk_1', url: 'https://elsewhere.example.com/h', active: true }]],
+		});
+		expect(await hooks.checkExists.call(ctx)).toBe(false);
+	});
+
+	it('codexumSourceCreatesPmSubscriptionWithWikiScope', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.page.published', 'wiki.comment.added'],
+				wikiScopeType: 'WIKI_SPACE',
+				wikiScopeSpace: 'ENG',
+			},
+			responses: [[], { identifier: 'whk_new' }],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		const post = calls.find((c) => c.method === 'POST');
+		expect(post?.url).toBe(LIST_PATH);
+		const body = post?.body as IDataObject;
+		expect(body).toEqual({
+			url: HOOK_URL,
+			secret: body.secret,
+			name: 'n8n',
+			eventTypes: ['wiki.page.published', 'wiki.comment.added'],
+			scopeType: 'WIKI_SPACE',
+			scopeEntityIdentifier: 'ENG',
+		});
+		expect(body.secret).toMatch(/^[0-9a-f]{64}$/);
+		expect(staticData).toEqual({
+			webhookId: 'whk_new',
+			secret: body.secret,
+			workspace: 'ws-1',
+			source: 'codexum',
+		});
+	});
+
+	it('codexum: a page scope sends the page ID; the whole workspace sends no scope', async () => {
+		const page = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.page.updated'],
+				wikiScopeType: 'WIKI_PAGE',
+				wikiScopePage: ' 0b9d7c1e-2f3a-4b5c-9d8e-7f6a5b4c3d2e ',
+			},
+			responses: [[], { identifier: 'whk_new' }],
+		});
+		await hooks.create.call(page.ctx);
+		expect(posted(page.calls)).toMatchObject({
+			scopeType: 'WIKI_PAGE',
+			scopeEntityIdentifier: '0b9d7c1e-2f3a-4b5c-9d8e-7f6a5b4c3d2e',
+		});
+
+		const whole = hookContext({
+			params: { source: 'codexum', wikiEvents: ['wiki.page.created'], wikiScopeType: 'WORKSPACE' },
+			responses: [[], { identifier: 'whk_new' }],
+		});
+		await hooks.create.call(whole.ctx);
+		expect(posted(whole.calls)).not.toHaveProperty('scopeType');
+		expect(posted(whole.calls)).not.toHaveProperty('scopeEntityIdentifier');
+		expect(posted(whole.calls).eventTypes).toEqual(['wiki.page.created']);
+	});
+
+	it('roadmarqSourceCreatesFeedbackBoardScope', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: {
+				source: 'roadmarq',
+				feedbackEvents: ['feedback.request.created'],
+				feedbackScopeType: 'FEEDBACK_BOARD',
+				feedbackScopeBoard: 'public-roadmap',
+			},
+			responses: [[], { identifier: 'whk_new' }],
+		});
+		await hooks.create.call(ctx);
+		expect(posted(calls)).toEqual({
+			url: HOOK_URL,
+			secret: posted(calls).secret,
+			name: 'n8n',
+			eventTypes: ['feedback.request.created'],
+			scopeType: 'FEEDBACK_BOARD',
+			scopeEntityIdentifier: 'public-roadmap',
+		});
+		expect(staticData.source).toBe('roadmarq');
+	});
+
+	it('roadmarq: a request or bug scope sends its short key', async () => {
+		for (const [scopeType, param, key] of [
+			['FEEDBACK_REQUEST', 'feedbackScopeRequest', 'FR-12'],
+			['FEEDBACK_BUG', 'feedbackScopeBug', 'BG-3'],
+		]) {
+			const { ctx, calls } = hookContext({
+				params: {
+					source: 'roadmarq',
+					feedbackEvents: ['feedback.comment.added'],
+					feedbackScopeType: scopeType,
+					[param]: key,
+				},
+				responses: [[], { identifier: 'whk_new' }],
+			});
+			await hooks.create.call(ctx);
+			expect(posted(calls)).toMatchObject({ scopeType, scopeEntityIdentifier: key });
+		}
+	});
+
+	it('never sends the security-bug opt-in (Dutify refuses it for API keys)', async () => {
+		const { ctx, calls } = hookContext({
+			params: { source: 'roadmarq', feedbackEvents: ['feedback.bug.created'] },
+			responses: [[], { identifier: 'whk_new' }],
+		});
+		await hooks.create.call(ctx);
+		expect(posted(calls)).not.toHaveProperty('includeSecurityBugs');
+	});
+
+	it('refuses to register without an event, and without a scope target', async () => {
+		const none = hookContext({
+			params: { source: 'codexum', wikiEvents: [] },
+			responses: [[]],
+		});
+		await expect(hooks.create.call(none.ctx)).rejects.toThrow(/event/i);
+		expect(none.calls.some((c) => c.method === 'POST')).toBe(false);
+
+		const noBoard = hookContext({
+			params: {
+				source: 'roadmarq',
+				feedbackEvents: ['feedback.request.created'],
+				feedbackScopeType: 'FEEDBACK_BOARD',
+				feedbackScopeBoard: '  ',
+			},
+			responses: [[]],
+		});
+		await expect(hooks.create.call(noBoard.ctx)).rejects.toThrow(/scope/i);
+		expect(noBoard.calls.some((c) => c.method === 'POST')).toBe(false);
+	});
+
+	it('a Source change from pm to codexum re-registers the same webhook (PUT), deleting nothing', async () => {
+		const { ctx, calls, staticData } = hookContext({
+			params: {
+				source: 'codexum',
+				wikiEvents: ['wiki.page.published'],
+				wikiScopeType: 'WORKSPACE',
+			},
+			staticData: { webhookId: 'whk_1', secret: 'old', workspace: 'ws-1', source: 'pm' },
+			responses: [
+				[{ identifier: 'whk_1', url: HOOK_URL, active: true, scopeType: 'SPACE' }],
+				{ identifier: 'whk_1' },
+			],
+		});
+		expect(await hooks.create.call(ctx)).toBe(true);
+		expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+			`GET ${LIST_PATH}`,
+			`PUT ${LIST_PATH}/whk_1`,
+		]);
+		const body = calls[1].body as IDataObject;
+		expect(body).toEqual({
+			secret: body.secret,
+			eventTypes: ['wiki.page.published'],
+			active: true,
+			clearScope: true,
+		});
+		expect(staticData).toMatchObject({ webhookId: 'whk_1', source: 'codexum' });
+	});
+
+	it('signatureVerifiesConformanceFixture: PM-signed deliveries verify, for every product source', async () => {
+		const { envelope, secret, signature } = conformanceFixture();
+		expect(verifySignature(secret, envelope, signature)).toBe(true);
+		expect(verifySignature(`${secret}x`, envelope, signature)).toBe(false);
+		expect(JSON.parse(envelope.toString('utf8'))).toMatchObject({
+			version: '1',
+			source: 'codexum',
+			eventId: expect.any(String),
+		});
+		for (const source of ['codexum', 'roadmarq', 'pm']) {
+			expect(sources[source].signatureHeader).toBe('x-webhook-signature-256');
+		}
+	});
+});
+
 describe('delete', () => {
 	it('removes the stored webhook and clears the static data', async () => {
 		const { ctx, calls, staticData } = hookContext({
@@ -1332,21 +1546,26 @@ describe('description', () => {
 		]);
 	});
 
-	it('has a source options property with pm (the default) and meeting', () => {
+	it('has a source options property with pm (the default), meeting, codexum and roadmarq', () => {
 		const source = prop('source');
 		expect(source.type).toBe('options');
 		expect(source.default).toBe('pm');
-		expect((source.options ?? []).map((o) => (o as { value: string }).value).sort()).toEqual([
-			'meeting',
-			'pm',
-		]);
+		const options = (source.options ?? []) as Array<{ name: string; value: string }>;
+		expect(options.map((o) => o.value).sort()).toEqual(['codexum', 'meeting', 'pm', 'roadmarq']);
+		expect(options.find((o) => o.value === 'codexum')?.name).toBe('Codexum (Wiki)');
+		expect(options.find((o) => o.value === 'roadmarq')?.name).toBe('Roadmarq (Feature Requests)');
 	});
 
-	it('the workspace locator is shown for both sources (a meeting webhook is bound to it)', () => {
+	it('the workspace locator is shown for every source (a meeting webhook is bound to it)', () => {
 		const ws = prop('workspace');
 		expect(ws.type).toBe('resourceLocator');
 		expect(ws.required).toBe(true);
-		expect([...(ws.displayOptions?.show?.source ?? [])].sort()).toEqual(['meeting', 'pm']);
+		expect([...(ws.displayOptions?.show?.source ?? [])].sort()).toEqual([
+			'codexum',
+			'meeting',
+			'pm',
+			'roadmarq',
+		]);
 		expect(props.filter((p) => p.name === 'workspace')).toHaveLength(1);
 		const listMode = ws.modes?.find((m) => m.name === 'list');
 		expect(listMode?.typeOptions?.searchListMethod).toBe('searchWorkspaces');
@@ -1395,6 +1614,71 @@ describe('description', () => {
 		for (const method of ['getSpaceIds', 'getFolderIds', 'getListIds']) {
 			expect(trigger.methods.loadOptions[method]).toBeTypeOf('function');
 		}
+	});
+
+	it('for codexum and roadmarq: required events loaded from /event-types for the chosen source', () => {
+		for (const [name, source] of [
+			['wikiEvents', 'codexum'],
+			['feedbackEvents', 'roadmarq'],
+		]) {
+			const events = prop(name);
+			expect(events.type).toBe('multiOptions');
+			expect(events.required).toBe(true);
+			expect(events.displayOptions?.show?.source).toEqual([source]);
+			expect(events.typeOptions?.loadOptionsMethod).toBe('getWebhookEventTypes');
+			expect(events.typeOptions?.loadOptionsDependsOn).toEqual(
+				expect.arrayContaining(['source', 'workspace.value']),
+			);
+		}
+		expect(trigger.methods.loadOptions.getWebhookEventTypes).toBeTypeOf('function');
+	});
+
+	it('for codexum: a scope over the whole workspace, a wiki space (picker) or a page ID', () => {
+		const scope = prop('wikiScopeType');
+		expect(scope.default).toBe('WORKSPACE');
+		expect(scope.displayOptions?.show?.source).toEqual(['codexum']);
+		expect((scope.options ?? []).map((o) => (o as { value: string }).value).sort()).toEqual([
+			'WIKI_PAGE',
+			'WIKI_SPACE',
+			'WORKSPACE',
+		]);
+		expect(prop('wikiScopeSpace').displayOptions?.show).toEqual({
+			source: ['codexum'],
+			wikiScopeType: ['WIKI_SPACE'],
+		});
+		expect(prop('wikiScopeSpace').typeOptions?.loadOptionsMethod).toBe('getWikiSpaces');
+		expect(prop('wikiScopePage').displayOptions?.show).toEqual({
+			source: ['codexum'],
+			wikiScopeType: ['WIKI_PAGE'],
+		});
+	});
+
+	it('for roadmarq: a scope over the whole workspace, a board (picker), a request or a bug', () => {
+		const scope = prop('feedbackScopeType');
+		expect(scope.default).toBe('WORKSPACE');
+		expect(scope.displayOptions?.show?.source).toEqual(['roadmarq']);
+		expect((scope.options ?? []).map((o) => (o as { value: string }).value).sort()).toEqual([
+			'FEEDBACK_BOARD',
+			'FEEDBACK_BUG',
+			'FEEDBACK_REQUEST',
+			'WORKSPACE',
+		]);
+		const targets: Record<string, string> = {
+			feedbackScopeBoard: 'FEEDBACK_BOARD',
+			feedbackScopeRequest: 'FEEDBACK_REQUEST',
+			feedbackScopeBug: 'FEEDBACK_BUG',
+		};
+		for (const [name, type] of Object.entries(targets)) {
+			expect(prop(name).displayOptions?.show).toEqual({
+				source: ['roadmarq'],
+				feedbackScopeType: [type],
+			});
+		}
+		expect(prop('feedbackScopeBoard').typeOptions?.loadOptionsMethod).toBe('getBoards');
+	});
+
+	it('has no security-bug opt-in field (Dutify refuses it for API keys)', () => {
+		expect(props.some((p) => /security/i.test(p.name))).toBe(false);
 	});
 });
 

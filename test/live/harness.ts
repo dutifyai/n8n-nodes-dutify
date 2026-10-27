@@ -17,6 +17,7 @@ import type {
 	IBinaryData,
 	IDataObject,
 	IExecuteFunctions,
+	IHookFunctions,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
 	INode,
@@ -374,6 +375,23 @@ function loadContext(params: IDataObject): ILoadOptionsFunctions {
 	};
 
 	return ctx as unknown as ILoadOptionsFunctions;
+}
+
+/**
+ * A Dutify Trigger hook context (checkExists / create / delete) over the live credential. Pass
+ * every trigger parameter: defaults are read from the action node, not the trigger.
+ */
+export function hookContextOf(
+	params: IDataObject,
+	webhookUrl: string,
+	staticData: IDataObject,
+): IHookFunctions {
+	const ctx = Object.assign(loadContext(params), {
+		getNodeWebhookUrl: (name: string) => (name === 'default' ? webhookUrl : undefined),
+		getWorkflowStaticData: () => staticData,
+	});
+
+	return ctx as unknown as IHookFunctions;
 }
 
 /** Runs a `loadOptions` method with the given (current) node parameters. */

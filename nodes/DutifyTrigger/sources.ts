@@ -13,6 +13,7 @@ export interface WebhookSource {
 	create(url: string, secret: string, cfg: IDataObject): RequestSpec;
 	/** The id of the created webhook. The secret is the generated one: Dutify never returns it. */
 	parseCreated(res: unknown, secret: string): { id: string; secret: string };
+	/** The webhooks of `cfg.workspace`; a source may narrow the list to `cfg.url` on the server. */
 	list(cfg: IDataObject): RequestSpec;
 	/** The listed webhooks that deliver to `url`, in list order. */
 	listAtUrl(res: unknown, url: string): ListedWebhook[];
@@ -77,7 +78,13 @@ const pm: WebhookSource = {
 		return { id, secret };
 	},
 	list(cfg) {
-		return { method: 'GET', path: pmWebhooksPath(cfg) };
+		const spec: RequestSpec = { method: 'GET', path: pmWebhooksPath(cfg) };
+		if (cfg.url) {
+			// Exact-match filter; listAtUrl filters again for servers that ignore it.
+			spec.qs = { url: String(cfg.url) };
+		}
+
+		return spec;
 	},
 	listAtUrl(res, url) {
 		const rows = Array.isArray(res) ? (res as PmWebhookRow[]) : [];
@@ -173,10 +180,16 @@ const meeting: WebhookSource = {
 };
 
 /**
- * Sources by the value of the trigger's `source` property. Later: `codexum` (wiki) and
- * `roadmarq` (feature requests), once those services have webhooks.
+ * Sources by the value of the trigger's `source` property. PM is the webhook hub of the suite:
+ * wiki (`codexum`) and feature-request (`roadmarq`) events are PM subscriptions too, with the
+ * same endpoints and signature header, so those sources are the PM one.
  */
-export const sources: Record<string, WebhookSource> = { pm, meeting };
+export const sources: Record<string, WebhookSource> = {
+	pm,
+	meeting,
+	codexum: pm,
+	roadmarq: pm,
+};
 
 const SIGNATURE_PREFIX = 'sha256=';
 

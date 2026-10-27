@@ -4,11 +4,14 @@ import type { INodePropertyOptions } from 'n8n-workflow';
  * The PM event types a webhook subscription can receive, as the subscription API spells them.
  *
  * Source: `ai.dutify.enumerable.EventAddress` on PM origin/master, narrowed to the events the
- * delivery pipeline maps in `WebhookAccessFilter` (the Webhook Resource catalog has no endpoint
- * listing them). `WebhookService.validateEventTypes` accepts every EventAddress, but an event the
- * filter does not map is blocked at delivery ("Unknown webhook event type"). That leaves out the
- * internal broker signals (websocket-notification, email-notification, storage-files-cleanup, ...)
- * and the `wiki.*` / `feedback.*` events, which a subscription is accepted for and never receives.
+ * delivery pipeline maps in `WebhookAccessFilter`. That leaves out the internal broker signals
+ * (websocket-notification, email-notification, storage-files-cleanup, ...).
+ *
+ * Wiki (`wiki.*`) and feature-request (`feedback.*`) events are delivered too, since PM became
+ * the webhook hub of the suite. They are not listed here: the Dutify Trigger loads them from
+ * `GET /mp/api/v1/workspaces/{ws}/webhooks/event-types`, filtered by product (`codexum`,
+ * `roadmarq`). That endpoint lists the PM events as well, but this static list stays the PM
+ * source of the trigger and of the webhook resource, so saved workflows keep their options.
  *
  * The Dutify Trigger node reuses this list, so a new PM event is added here once.
  */
