@@ -1,3 +1,5 @@
+import { sleep } from 'n8n-workflow';
+import type { IDataObject } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
 	cleanupStack,
@@ -111,6 +113,54 @@ liveDescribe('notification, activity log — live', () => {
 		expect(Array.isArray(await loadOptionsOf('getNotifications'))).toBe(true);
 		expect(await runOne('notification', 'markAllRead')).toEqual({ success: true });
 	});
+
+	// A reaction to your own comment notifies you ("reaction-to-your-comment"): the test makes one,
+	// marks that notification read and checks it is read; an unknown notification is 404.
+	it('notification markRead marks the notification of a reaction to the test user’s comment', async () => {
+		const task = await runOne('task', 'get', { task: taskKey });
+		const comment = await runOne('taskComment', 'create', {
+			task: taskKey,
+			text: `Notify me ${runId}`,
+		});
+		const commentId = String(comment.identifier);
+		await runOne('taskComment', 'addReaction', {
+			task: String(task.identifier),
+			comment: commentId,
+			reactionType: 'thumbs_up',
+		});
+
+		const ofComment = (rows: IDataObject[]) =>
+			rows.find((n) => (n.data as IDataObject | undefined)?.commentIdentifier === commentId);
+		let notification: IDataObject | undefined;
+		for (let i = 0; i < 20 && !notification; i++) {
+			notification = ofComment(
+				await run('notification', 'list', {
+					additionalFields: { unreadOnly: true },
+					returnAll: true,
+				}),
+			);
+			if (!notification) {
+				await sleep(1500);
+			}
+		}
+		expect(notification).toMatchObject({ type: 'reaction-to-your-comment', readStatus: false });
+		const id = String(notification?.identifier);
+		expect((await loadOptionsOf('getNotifications')).map((o) => String(o.value))).toContain(id);
+
+		expect(await runOne('notification', 'markRead', { notification: id })).toEqual({
+			success: true,
+		});
+		const unread = await run('notification', 'list', {
+			additionalFields: { unreadOnly: true },
+			returnAll: true,
+		});
+		expect(unread.map((n) => n.identifier)).not.toContain(id);
+		const all = await run('notification', 'list', { returnAll: true });
+		expect(all.find((n) => n.identifier === id)).toMatchObject({ readStatus: true });
+
+		const unknown = await runError('notification', 'markRead', { notification: 'NoSuchNtf0' });
+		expect(unknown.httpCode).toBe('404');
+	}, 60_000);
 
 	it('activity log of the task, the space and the workspace include the task', async () => {
 		const ofTask = await run('activityLog', 'list', {

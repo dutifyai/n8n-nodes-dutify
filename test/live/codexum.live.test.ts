@@ -128,6 +128,22 @@ liveDescribe('Codexum space and page — live', () => {
 		expect(error.message).toContain('Business');
 	});
 
+	// FREE cannot share a page, so disableShare is checked on a page that is not shared: the
+	// catalog's 204 (sharing off; nothing to revoke), and 404 for a page that does not exist.
+	it('page disableShare: an unshared page answers success and stays unshared; unknown page 404', async () => {
+		expect(await runOne('codexumPage', 'disableShare', { space: key, page })).toEqual({
+			success: true,
+		});
+		expect(await runOne('codexumPage', 'getShare', { space: key, page })).toMatchObject({
+			isEnabled: false,
+		});
+		const unknown = await runError('codexumPage', 'disableShare', {
+			space: key,
+			page: `no-such-page-${runId}`,
+		});
+		expect(unknown.httpCode).toBe('404');
+	});
+
 	it('search and retrieve answer (the index may lag, so only the shape is checked)', async () => {
 		const found = await run('codexumPage', 'search', {
 			query: `Replaced body ${runId}`,
