@@ -122,6 +122,9 @@ Delete, or Update with Active off).
   limit (3 on FREE); delete them in Dutify if you no longer need them. Meeting webhooks follow
   the same rules (one per n8n URL, reused and switched back on when activated again), except that
   Hub always deletes them.
+- **Member administration** (changing a role, removing a member, leaving a workspace,
+  transferring ownership) is not in the node. Dutify keeps it for signed-in users in the app and
+  refuses it for API keys. Member → Get Many lists the members.
 - **Subtasks** must be switched on in the space settings before a task can get a parent.
 - **Sprints** must be enabled in the space settings before sprint operations work. The node has
   no operation to enable them.

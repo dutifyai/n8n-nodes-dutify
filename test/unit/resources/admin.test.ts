@@ -55,13 +55,9 @@ describe('registration', () => {
 			'addMember',
 			'removeMember',
 		]);
-		expect(member.operations.map((o) => o.operation)).toEqual([
-			'list',
-			'changeRole',
-			'remove',
-			'transferOwnership',
-			'leave',
-		]);
+		// Member administration (role, removal, leaving, ownership) is for signed-in sessions only:
+		// Dutify refuses it for every API key, so the node offers only the member list.
+		expect(member.operations.map((o) => o.operation)).toEqual(['list']);
 		expect(invitation.operations.map((o) => o.operation)).toEqual(['list', 'send', 'cancel']);
 		expect(importJob.operations.map((o) => o.operation)).toEqual([
 			'list',
@@ -201,55 +197,6 @@ describe('member', () => {
 		});
 	});
 
-	it('changeRole: PUT workspaces/{ws}/users with userUuid and workspaceAccessLevelId', () => {
-		expect(build(member, 'changeRole', { user: 'u-1', accessLevel: 2 })).toEqual({
-			method: 'PUT',
-			path: '/mp/api/v1/workspaces/ws-1/users',
-			body: { userUuid: 'u-1', workspaceAccessLevelId: 2 },
-		});
-	});
-
-	it('changeRole: an access level given as text (an expression) is sent as a number', () => {
-		expect(build(member, 'changeRole', { user: 'u-1', accessLevel: '2' }).body).toEqual({
-			userUuid: 'u-1',
-			workspaceAccessLevelId: 2,
-		});
-	});
-
-	it('remove: DELETE workspaces/{ws}/users with deletionUserUuid as a query parameter', () => {
-		expect(build(member, 'remove', { user: 'u-1' })).toEqual({
-			method: 'DELETE',
-			path: '/mp/api/v1/workspaces/ws-1/users',
-			qs: { deletionUserUuid: 'u-1' },
-		});
-	});
-
-	it('transferOwnership: POST users/transfer-ownership with the new owner and the previous owner level', () => {
-		expect(
-			build(member, 'transferOwnership', { user: 'u-2', resultingOwnerAccessLevel: 1 }),
-		).toEqual({
-			method: 'POST',
-			path: '/mp/api/v1/workspaces/ws-1/users/transfer-ownership',
-			body: { transferToUserUuid: 'u-2', resultingOwnerAccessLevelId: 1 },
-		});
-	});
-
-	it('leave: POST users/leave without a body', () => {
-		expect(build(member, 'leave', {})).toEqual({
-			method: 'POST',
-			path: '/mp/api/v1/workspaces/ws-1/users/leave',
-		});
-	});
-
-	it('picks members and access levels from lists', () => {
-		expect(loaderOf(member, 'changeRole', 'user')).toBe('getMemberIds');
-		expect(loaderOf(member, 'changeRole', 'accessLevel')).toBe('getAccessLevels');
-		expect(loaderOf(member, 'remove', 'user')).toBe('getMemberIds');
-		expect(loaderOf(member, 'transferOwnership', 'user')).toBe('getMemberIds');
-		expect(loaderOf(member, 'transferOwnership', 'resultingOwnerAccessLevel')).toBe(
-			'getAccessLevels',
-		);
-	});
 });
 
 describe('invitation', () => {

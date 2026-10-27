@@ -14,30 +14,18 @@ import {
 	runId,
 } from './harness';
 
-/** A UUID no account has. */
-const NO_SUCH_USER = '00000000-0000-4000-8000-000000000000';
-
 /**
  * Resend's documented test inbox: Dutify's production mail goes through Resend, which accepts
  * mail to delivered@resend.dev (with any +label) as delivered without passing it to anyone.
  */
 const UNREAD_INBOX = `delivered+n8n-live-${runId}@resend.dev`;
 
-/** The test user's row in the member list. */
-async function me(): Promise<IDataObject | undefined> {
-	const members = await run('member', 'list', { returnAll: true });
-
-	return members.find((m) => m.userUuid === live.userId);
-}
-
 /**
- * Team round-trip; member, invitation and import job operations.
+ * Team round-trip; member list, invitation and import job operations.
  *
- * Member writes (change role, remove, leave, transfer ownership) are refused by Dutify for every
- * API key, the node's only credential: 403 ACCESS_DENIED before any membership rule is checked.
- * The catalog lists the 403 but does not say why. The tests send each one at the owner (the
- * test user, the workspace's only member; the tests may not create accounts) and at an unknown
- * user, and check the refusal and that the membership did not change.
+ * The node has no member writes (change role, remove, leave, transfer ownership): Dutify keeps
+ * member administration for signed-in sessions and refuses it for every API key, the node's only
+ * credential.
  */
 liveDescribe('team, member, invitation, import job — live', () => {
 	const cleanup = cleanupStack();
@@ -110,51 +98,6 @@ liveDescribe('team, member, invitation, import job — live', () => {
 			job: '00000000-0000-0000-0000-000000000000',
 		});
 		expect(unknown.httpCode).toBe('404');
-	});
-
-	/* ---------- member writes: refused for API keys ---------- */
-
-	/** The refusal Dutify gives an API key, and the test user is still the owner. */
-	async function expectKeyRefused(
-		operation: string,
-		params: IDataObject,
-		reason: RegExp,
-	): Promise<void> {
-		const refused = await runError('member', operation, params);
-		expect(refused.httpCode).toBe('403');
-		expect(`${refused.message} ${refused.description ?? ''}`).toMatch(reason);
-		expect(await me()).toMatchObject({ isOwner: true });
-	}
-
-	const KEYS_REFUSED = /API keys cannot access this endpoint/;
-
-	it('member changeRole is refused for API keys (owner and unknown member alike)', async () => {
-		expect(await me()).toMatchObject({ isOwner: true });
-		const levels = await loadOptionsOf('getAccessLevels');
-		const memberLevel = levels.find((l) => l.name === 'Member') ?? levels[0];
-		for (const user of [live.userId, NO_SUCH_USER]) {
-			await expectKeyRefused('changeRole', { user, accessLevel: memberLevel.value }, KEYS_REFUSED);
-		}
-	});
-
-	it('member remove is refused for API keys (owner and unknown member alike)', async () => {
-		for (const user of [live.userId, NO_SUCH_USER]) {
-			await expectKeyRefused('remove', { user }, KEYS_REFUSED);
-		}
-	});
-
-	it('member transferOwnership is refused for API keys, with the reason', async () => {
-		const levels = await loadOptionsOf('getAccessLevels');
-		const admin = levels.find((l) => l.name === 'Admin') ?? levels[0];
-		await expectKeyRefused(
-			'transferOwnership',
-			{ user: NO_SUCH_USER, resultingOwnerAccessLevel: admin.value },
-			/API keys cannot transfer workspace ownership/,
-		);
-	});
-
-	it('member leave is refused for API keys', async () => {
-		await expectKeyRefused('leave', {}, KEYS_REFUSED);
 	});
 
 	/* ---------- invitations ---------- */

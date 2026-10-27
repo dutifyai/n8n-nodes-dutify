@@ -239,62 +239,6 @@ const memberOperations: OperationDef[] = [
 			};
 		},
 	},
-	{
-		operation: 'changeRole',
-		name: 'Change Role',
-		action: 'Change the role of a member',
-		description: 'Give a workspace member another access level. Needs the Manage Users permission',
-		fields: [userField(), accessLevelField()],
-		build: (p) => ({
-			method: 'PUT',
-			path: `${workspacePath(p)}/users`,
-			body: {
-				userUuid: p.get<string>('user'),
-				workspaceAccessLevelId: accessLevelId(p.get('accessLevel')),
-			},
-		}),
-	},
-	{
-		operation: 'remove',
-		name: 'Remove',
-		action: 'Remove a member from the workspace',
-		description:
-			'Remove a member from the workspace and revoke all their access. The owner cannot be removed. Needs the Manage Users permission',
-		fields: [userField()],
-		build: (p) => ({
-			method: 'DELETE',
-			path: `${workspacePath(p)}/users`,
-			qs: { deletionUserUuid: p.get<string>('user') },
-		}),
-	},
-	{
-		operation: 'transferOwnership',
-		name: 'Transfer Ownership',
-		action: 'Transfer the ownership of the workspace',
-		description:
-			'Make another member the workspace owner. Only the current owner can do this, and the previous owner gets the access level you choose',
-		fields: [
-			userField('user', 'New Owner Name or ID'),
-			accessLevelField('resultingOwnerAccessLevel', 'Your New Access Level Name or ID'),
-		],
-		build: (p) => ({
-			method: 'POST',
-			path: `${workspacePath(p)}/users/transfer-ownership`,
-			body: {
-				transferToUserUuid: p.get<string>('user'),
-				resultingOwnerAccessLevelId: accessLevelId(p.get('resultingOwnerAccessLevel')),
-			},
-		}),
-	},
-	{
-		operation: 'leave',
-		name: 'Leave',
-		action: 'Leave the workspace',
-		description:
-			'Leave the workspace as the user of the API key. The owner has to transfer ownership first, and the key may stop working afterwards',
-		fields: [],
-		build: (p) => ({ method: 'POST', path: `${workspacePath(p)}/users/leave` }),
-	},
 ];
 
 /** Workspace members (PM "Workspaces", user endpoints). */
