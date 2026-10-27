@@ -7,7 +7,7 @@ import { byteStream, drain } from './helpers';
 const node: INode = {
 	id: 'n1',
 	name: 'Dutify',
-	type: 'n8n-nodes-dutify.dutify',
+	type: '@dutifyai/n8n-nodes-dutify.dutify',
 	typeVersion: 1,
 	position: [0, 0],
 	parameters: {},

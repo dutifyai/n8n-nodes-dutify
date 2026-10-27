@@ -81,7 +81,7 @@ describe('webhook event types from /event-types', () => {
 			getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
 			getNode: () => ({
 				name: 'Dutify Trigger',
-				type: 'n8n-nodes-dutify.dutifyTrigger',
+				type: '@dutifyai/n8n-nodes-dutify.dutifyTrigger',
 				typeVersion: 1,
 			}),
 			helpers: {

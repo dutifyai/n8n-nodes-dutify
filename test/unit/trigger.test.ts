@@ -416,7 +416,7 @@ function hookContext(opts: {
 		getNode: () => ({
 			id: 'n1',
 			name: 'Dutify Trigger',
-			type: 'n8n-nodes-dutify.dutifyTrigger',
+			type: '@dutifyai/n8n-nodes-dutify.dutifyTrigger',
 			typeVersion: 1,
 			position: [0, 0],
 			parameters: {},

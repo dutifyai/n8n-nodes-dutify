@@ -70,7 +70,7 @@ describe('Hub call and recording pickers', () => {
 			getNodeParameter: (name: string, fallback?: unknown) =>
 				name === 'workspace' ? '' : fallback,
 			getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
-			getNode: () => ({ name: 'Dutify', type: 'n8n-nodes-dutify.dutify', typeVersion: 1 }),
+			getNode: () => ({ name: 'Dutify', type: '@dutifyai/n8n-nodes-dutify.dutify', typeVersion: 1 }),
 			helpers: {
 				httpRequestWithAuthentication: async (_cred: string, options: unknown) => {
 					requests.push(options);
@@ -113,7 +113,7 @@ describe('Hub meeting webhook picker', () => {
 				getNodeParameter: (name: string, fallback?: unknown) =>
 					name === 'workspace' ? workspace : fallback,
 				getCredentials: async () => ({ apiKey: 'dk_live_x', baseUrl: 'https://dutify.test' }),
-				getNode: () => ({ name: 'Dutify', type: 'n8n-nodes-dutify.dutify', typeVersion: 1 }),
+				getNode: () => ({ name: 'Dutify', type: '@dutifyai/n8n-nodes-dutify.dutify', typeVersion: 1 }),
 				helpers: { httpRequestWithAuthentication: answer },
 			}) as unknown as ILoadOptionsFunctions;
 		expect(

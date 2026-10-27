@@ -6,7 +6,7 @@ import { buildHttpOptions, dutifyRequest, encodePath, toNodeError } from '../../
 const node: INode = {
 	id: 'n1',
 	name: 'Dutify',
-	type: 'n8n-nodes-dutify.dutify',
+	type: '@dutifyai/n8n-nodes-dutify.dutify',
 	typeVersion: 1,
 	position: [0, 0],
 	parameters: {},

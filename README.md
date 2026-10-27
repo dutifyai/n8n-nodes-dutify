@@ -1,4 +1,4 @@
-# n8n-nodes-dutify
+# @dutifyai/n8n-nodes-dutify
 
 n8n community nodes for [Dutify](https://dutify.ai): Project Management, Codexum (wiki),
 Roadmarq (feature requests and bugs) and Hub (meeting recordings).
@@ -12,7 +12,7 @@ The package has no runtime dependencies.
 
 ## Install
 
-In n8n, open **Settings → Community Nodes → Install**, enter `n8n-nodes-dutify`, and confirm.
+In n8n, open **Settings → Community Nodes → Install**, enter `@dutifyai/n8n-nodes-dutify`, and confirm.
 Both nodes then show up in the node panel under "Dutify".
 
 > The package is not published to npm yet. Until it is, the install above will not find it.

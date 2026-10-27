@@ -86,7 +86,7 @@ export function workspaceLocator(value = live.workspace) {
 const node: INode = {
 	id: 'live-test-node',
 	name: 'Dutify',
-	type: 'n8n-nodes-dutify.dutify',
+	type: '@dutifyai/n8n-nodes-dutify.dutify',
 	typeVersion: 1,
 	position: [0, 0],
 	parameters: {},
