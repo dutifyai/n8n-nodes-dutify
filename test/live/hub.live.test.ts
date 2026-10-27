@@ -1,14 +1,18 @@
-import { beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { TestContext } from 'vitest';
 import { sleep } from 'n8n-workflow';
 import type { IDataObject } from 'n8n-workflow';
 import {
+	cleanupStack,
 	live,
 	liveDescribe,
 	loadOptionsOf,
+	rawRequest,
 	readAudioFile,
+	readVideoFile,
 	run,
 	runError,
+	runId,
 	runOne,
 	runOperation,
 } from './harness';
@@ -247,4 +251,65 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 		PROCESSING_TIMEOUT_MS,
 		true,
 	)();
+});
+
+/*
+ * An uploaded video has a preview thumbnail, which the audio test recording lacks. Uploading and
+ * processing one spends transcription minutes and AI, so this runs only with
+ * DUTIFY_TEST_PAID_OPS=1 and a DUTIFY_TEST_VIDEO file (a short mp4 of the same standup). The
+ * call is hard-deleted afterwards, so the audio recording stays the workspace's newest call.
+ */
+liveDescribe('Hub recording preview of an uploaded video — live (paid)', () => {
+	const cleanup = cleanupStack();
+	afterAll(async () => await cleanup.run(), 120_000);
+
+	it(
+		'getPreviewUrl of a processed video upload is a signed URL of an image; download gives the image',
+		async (ctx) => {
+			const video = readVideoFile();
+			if (!live.paidOps || !video) {
+				ctx.skip(
+					'uploads and processes a video (transcription minutes and AI); set DUTIFY_TEST_PAID_OPS=1 and DUTIFY_TEST_VIDEO',
+				);
+
+				return;
+			}
+			const fileName = `n8n-live-preview-${runId}.mp4`;
+			const [item] = await runOperation(
+				'recording',
+				'upload',
+				{ binaryPropertyName: 'data', additionalFields: { fileName, noteTemplate: 'standup' } },
+				{ property: 'data', data: video, mimeType: 'video/mp4', fileName },
+			);
+			const recording = String(item.json.recordingId);
+			expect(recording).toMatch(/^\d+$/);
+			const status = await waitUntilProcessed(recording);
+			const call = String(status.userCallId);
+			cleanup.add(`hub call ${call}`, async () => {
+				await rawRequest({ method: 'DELETE', path: `/api/usercall/${encodeURIComponent(call)}` });
+			});
+
+			const preview = await runOne('recording', 'getPreviewUrl', { recording });
+			expect(String(preview.url)).toMatch(/^https:\/\//);
+			const image = await fetch(String(preview.url));
+			expect(image.status).toBe(200);
+			expect(String(image.headers.get('content-type'))).toMatch(/^image\//);
+
+			const [downloaded] = await runOperation('recording', 'getPreviewUrl', {
+				recording,
+				download: true,
+			});
+			expect(String(downloaded.binary?.data.mimeType)).toMatch(/^image\//);
+			expect(Number(downloaded.binary?.data.fileSize)).toBeGreaterThan(0);
+
+			// The catalog: an uploaded video is not served as media (400).
+			const media = await runError('recording', 'getMediaUrl', { recording });
+			expect(media.httpCode).toBe('400');
+
+			await rawRequest({ method: 'DELETE', path: `/api/usercall/${encodeURIComponent(call)}` });
+			const gone = await runError('call', 'get', { call });
+			expect(gone.httpCode).toBe('404');
+		},
+		PROCESSING_TIMEOUT_MS + 60_000,
+	);
 });

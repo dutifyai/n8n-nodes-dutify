@@ -172,6 +172,13 @@ Two optional settings in the same file control the Hub suite:
   and without this file, the Hub suite skips.
 - `DUTIFY_TEST_PAID_OPS=1`: also runs Regenerate Summary, Reprocess and Lens Ask, which spend AI
   credits. Leave it out for everyday runs.
+- `DUTIFY_TEST_VIDEO`: path to a short mp4. With `DUTIFY_TEST_PAID_OPS=1`, the suite uploads it,
+  checks its preview thumbnail (Get Preview URL), and deletes the call again.
+
+`test/live/trigger.live.test.ts` delivers real events to the Dutify Trigger. It starts a local
+HTTP receiver and an [ngrok](https://ngrok.com) tunnel to it, so ngrok v3 must be installed and
+signed in (the path defaults to `D:\Program Files\ngrok-v3-stable-windows-amd64\ngrok.exe`; set
+`NGROK_EXE` to change it). It stops only the ngrok process it started.
 
 The test workspace is **"n8n Live Tests"** (identifier `TdoMDsRAm4`, FREE plan). It is owned by
 the test user `n8n-live-test@example.com`. Run the live tests only there.
