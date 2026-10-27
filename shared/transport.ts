@@ -65,6 +65,9 @@ export function buildHttpOptions(
 	if (spec.body !== undefined) {
 		options.body = spec.body;
 	}
+	if (spec.contentType) {
+		headers['Content-Type'] = spec.contentType;
+	}
 	if (spec.timeout !== undefined) {
 		options.timeout = spec.timeout;
 	}

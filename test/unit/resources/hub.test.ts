@@ -1,3 +1,4 @@
+import type { IDataObject } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import { resources } from '../../../nodes/Dutify/registry';
 import { call, LENS_TIMEOUT_MS, lens, recording } from '../../../nodes/Dutify/resources/hub';
@@ -41,6 +42,12 @@ describe('registration', () => {
 			'search',
 			'countSearch',
 			'get',
+			'delete',
+			'sendToJira',
+			'sendToClickUp',
+			'sendToAirtable',
+			'setCustomPrompt',
+			'clearCustomPrompt',
 		]);
 		expect(recording.operations.map((o) => o.operation)).toEqual([
 			'getMediaUrl',
@@ -148,6 +155,171 @@ describe('call', () => {
 		const f = field(call, 'get', 'call');
 		expect(f?.required).toBe(true);
 		expect(loaderOf(call, 'get', 'call')).toBe('getHubCalls');
+	});
+});
+
+describe('call writes', () => {
+	// Catalog (Calls): DELETE /usercall/{id}; POST /usercall/selection/{jira,clickup,airtable}
+	// with the call UUID; PUT/DELETE /usercall/{id}/custom-prompt with {customPrompt}.
+	const WS_UUID = 'c0b647a5-2e8f-4d74-b7b9-8cc2257a07ab';
+	const workspaces = { workspaces: [{ id: WS_UUID, identifier: 'ws-1', name: 'Test' }] };
+	const callRow = { id: 42, call: { id: 7, callUuid: 'call-uuid-1' } };
+	const connected = (system: string) => [
+		{ integrationSystem: 'PM', status: 'CONNECTED' },
+		{ integrationSystem: system, status: 'CONNECTED' },
+	];
+
+	it('delete DELETEs the call by integer ID, picked from the calls', () => {
+		expect(opOf(call, 'delete').build!(reader({ call: '42' }))).toEqual({
+			method: 'DELETE',
+			path: '/api/usercall/42',
+		});
+		expect(loaderOf(call, 'delete', 'call')).toBe('getHubCalls');
+	});
+
+	it('sendToJira checks Jira is connected, reads the call UUID, and POSTs cloudId + projectIds', async () => {
+		const ctx = fakeContext([workspaces, connected('JIRA'), callRow, true]);
+		const out = await opOf(call, 'sendToJira').run!(
+			ctx,
+			reader({ call: '42', jiraCloud: 'cloud-1', jiraProjects: ['10001', '10002'] }),
+		);
+		expect(ctx.calls).toEqual([
+			{ method: 'GET', path: '/api/v1/workspaces' },
+			{ method: 'GET', path: `/api/v1/workspaces/${WS_UUID}/integrations` },
+			{ method: 'GET', path: '/api/usercall/42' },
+			{
+				method: 'POST',
+				path: '/api/usercall/selection/jira',
+				body: { callUUID: 'call-uuid-1', cloudId: 'cloud-1', projectIds: ['10001', '10002'] },
+			},
+		]);
+		expect(out).toEqual([{ json: { accepted: true } }]);
+	});
+
+	it('sendToClickUp POSTs the call UUID and the list ID', async () => {
+		const ctx = fakeContext([workspaces, connected('CLICKUP'), callRow, true]);
+		await opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '901' }));
+		expect(ctx.calls[3]).toEqual({
+			method: 'POST',
+			path: '/api/usercall/selection/clickup',
+			body: { callUUID: 'call-uuid-1', selectedListId: '901' },
+		});
+	});
+
+	it('sendToAirtable POSTs the call UUID, baseId and tableIds', async () => {
+		const ctx = fakeContext([workspaces, connected('AIRTABLE'), callRow, 'true']);
+		const out = await opOf(call, 'sendToAirtable').run!(
+			ctx,
+			reader({ call: '42', airtableBase: 'app1', airtableTables: ['tbl1'] }),
+		);
+		expect(ctx.calls[3]).toEqual({
+			method: 'POST',
+			path: '/api/usercall/selection/airtable',
+			body: { callUUID: 'call-uuid-1', baseId: 'app1', tableIds: ['tbl1'] },
+		});
+		expect(out).toEqual([{ json: { accepted: true } }]);
+	});
+
+	it.each([
+		['sendToJira', { jiraCloud: 'c', jiraProjects: ['p'] }, /Jira/],
+		['sendToClickUp', { clickUpList: 'l' }, /ClickUp/],
+		['sendToAirtable', { airtableBase: 'b', airtableTables: ['t'] }, /Airtable/],
+	])(
+		'%s refuses, before sending, when the integration is not connected (Hub would accept and drop it)',
+		async (operation, params, message) => {
+			const ctx = fakeContext([
+				workspaces,
+				[
+					{ integrationSystem: 'PM', status: 'CONNECTED' },
+					{ integrationSystem: 'JIRA', status: 'REVOKED' },
+					{ integrationSystem: 'CLICKUP', status: 'ERROR' },
+				],
+			]);
+			await expect(
+				opOf(call, operation).run!(ctx, reader({ call: '42', ...params })),
+			).rejects.toThrow(message);
+			expect(ctx.calls.map((c) => c.method)).toEqual(['GET', 'GET']);
+		},
+	);
+
+	it('a Jira connection listed as ATLASSIAN counts as connected', async () => {
+		const ctx = fakeContext([workspaces, connected('ATLASSIAN'), callRow, true]);
+		await opOf(call, 'sendToJira').run!(
+			ctx,
+			reader({ call: '42', jiraCloud: 'c', jiraProjects: ['p'] }),
+		);
+		expect(ctx.calls[3].path).toBe('/api/usercall/selection/jira');
+	});
+
+	it('sends anyway when the key may not read integrations (403 on the check)', async () => {
+		const forbidden = Object.assign(new Error('Forbidden'), { httpCode: '403' });
+		const ctx = fakeContext([workspaces, forbidden, callRow, true]);
+		await opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '9' }));
+		expect(ctx.calls[3].path).toBe('/api/usercall/selection/clickup');
+	});
+
+	it('refuses an empty project or table list before any request', async () => {
+		for (const [operation, params] of [
+			['sendToJira', { jiraCloud: 'c', jiraProjects: [] }],
+			['sendToAirtable', { airtableBase: 'b', airtableTables: [] }],
+		] as const) {
+			const ctx = fakeContext([]);
+			await expect(
+				opOf(call, operation).run!(ctx, reader({ call: '42', ...params })),
+			).rejects.toThrow(/at least one/i);
+			expect(ctx.calls).toEqual([]);
+		}
+	});
+
+	it('refuses a call without a UUID instead of sending an empty one', async () => {
+		const ctx = fakeContext([workspaces, connected('CLICKUP'), { id: 42, call: {} }]);
+		await expect(
+			opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '9' })),
+		).rejects.toThrow(/UUID/);
+		expect(ctx.calls).toHaveLength(3);
+	});
+
+	it('Jira cloud and projects, and Airtable base and tables, are pickers; the ClickUp list is typed', () => {
+		expect(loaderOf(call, 'sendToJira', 'jiraCloud')).toBe('getJiraClouds');
+		expect(loaderOf(call, 'sendToJira', 'jiraProjects')).toBe('getJiraProjects');
+		expect(field(call, 'sendToJira', 'jiraProjects')?.type).toBe('multiOptions');
+		expect(
+			(field(call, 'sendToJira', 'jiraProjects')?.typeOptions as IDataObject).loadOptionsDependsOn,
+		).toEqual(['jiraCloud']);
+		expect(loaderOf(call, 'sendToAirtable', 'airtableBase')).toBe('getAirtableBases');
+		expect(loaderOf(call, 'sendToAirtable', 'airtableTables')).toBe('getAirtableTables');
+		expect(
+			(field(call, 'sendToAirtable', 'airtableTables')?.typeOptions as IDataObject)
+				.loadOptionsDependsOn,
+		).toEqual(['airtableBase']);
+		// Hub exposes no endpoint listing ClickUp lists, so the list ID is typed.
+		expect(field(call, 'sendToClickUp', 'clickUpList')?.type).toBe('string');
+		for (const name of ['sendToJira', 'sendToClickUp', 'sendToAirtable']) {
+			expect(loaderOf(call, name, 'call')).toBe('getHubCalls');
+		}
+	});
+
+	it('setCustomPrompt PUTs {customPrompt} on the call', () => {
+		expect(
+			opOf(call, 'setCustomPrompt').build!(reader({ call: '42', customPrompt: 'Focus on risks' })),
+		).toEqual({
+			method: 'PUT',
+			path: '/api/usercall/42/custom-prompt',
+			body: { customPrompt: 'Focus on risks' },
+		});
+	});
+
+	it('setCustomPrompt refuses an empty prompt (Clear Custom Prompt removes it)', () => {
+		expect(() =>
+			opOf(call, 'setCustomPrompt').build!(reader({ call: '42', customPrompt: '  ' })),
+		).toThrow(/Clear Custom Prompt/);
+	});
+
+	it('clearCustomPrompt DELETEs the call prompt', () => {
+		expect(opOf(call, 'clearCustomPrompt').build!(reader({ call: '42' }))).toEqual({
+			method: 'DELETE',
+			path: '/api/usercall/42/custom-prompt',
+		});
 	});
 });
 

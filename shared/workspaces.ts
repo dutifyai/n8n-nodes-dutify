@@ -1,3 +1,4 @@
+import { ApplicationError } from 'n8n-workflow';
 import type { RequestSpec } from './types';
 
 export type Fetch = (spec: RequestSpec) => Promise<unknown>;
@@ -66,4 +67,53 @@ export async function fetchAccessibleWorkspaces(
 				name: w.name,
 			})),
 	};
+}
+
+/* ---------- Hub workspaces ---------- */
+
+/**
+ * Hub's workspaces (catalog tag Workspaces). For an API key Hub lists only the workspace the key
+ * may use, the X-Dutify-Workspace one for a personal key; each row carries its UUID `id` and the
+ * suite `identifier`.
+ */
+export const hubWorkspacesSpec: RequestSpec = { method: 'GET', path: '/api/v1/workspaces' };
+
+export interface HubWorkspaceRow {
+	id?: string;
+	identifier?: string;
+	name?: string;
+	[key: string]: unknown;
+}
+
+/** The row of the selected workspace, matched by identifier or by UUID. */
+export function findHubWorkspace(
+	response: unknown,
+	workspace: string,
+): HubWorkspaceRow | undefined {
+	const rows: unknown = Array.isArray(response)
+		? response
+		: (response as { workspaces?: unknown } | null)?.workspaces;
+
+	return (Array.isArray(rows) ? (rows as HubWorkspaceRow[]) : []).find(
+		(row) => Boolean(workspace) && (row.identifier === workspace || row.id === workspace),
+	);
+}
+
+/**
+ * The selected workspace as Hub knows it. Hub's /v1/workspaces/{workspaceId} paths take this
+ * row's UUID: the suite identifier is refused there with 403 "API key cannot access this
+ * workspace".
+ */
+export async function resolveHubWorkspace(
+	fetch: Fetch,
+	workspace: string,
+): Promise<HubWorkspaceRow> {
+	const row = findHubWorkspace(await fetch(hubWorkspacesSpec), workspace);
+	if (!row?.id) {
+		throw new ApplicationError(
+			`Hub does not list the workspace "${workspace}" for this API key. Check that the key may use it and that the workspace has Hub access.`,
+		);
+	}
+
+	return row;
 }
