@@ -14,7 +14,13 @@ export interface RequestSpec {
 	path: string;
 	/** Query string. `undefined`, `null` and `''` values are dropped before sending. */
 	qs?: IDataObject;
-	body?: IDataObject | IDataObject[];
+	/**
+	 * JSON body, or a string sent verbatim (Hub endpoints that bind a bare `@RequestBody String`).
+	 * An empty string is sent as an empty body.
+	 */
+	body?: IDataObject | IDataObject[] | string;
+	/** Content-Type of a string body, e.g. `text/plain`. */
+	contentType?: string;
 	/** Request timeout in milliseconds, for slow endpoints such as Lens. Omitted: the HTTP client default. */
 	timeout?: number;
 	/** Present only on list operations. */

@@ -86,6 +86,61 @@ const notificationSettingFields: INodeProperties[] = NOTIFICATION_GROUPS.flatMap
 	),
 );
 
+const channelField: INodeProperties = {
+	displayName: 'Channel',
+	name: 'channel',
+	type: 'options',
+	options: [
+		{ name: 'App', value: 'app' },
+		{ name: 'Browser', value: 'browser' },
+		{ name: 'Email', value: 'email' },
+	],
+	default: 'app',
+	description: 'Where the notifications are delivered',
+};
+
+/**
+ * The Codexum and Roadmarq notification keys, as GET /users/settings/notifications/all lists them.
+ * They are changed through PUT /users/settings/notifications/{module}/{channel}, which refuses PM.
+ */
+const MODULE_NOTIFICATIONS: Array<{
+	module: string;
+	field: string;
+	settings: Array<[name: string, label: string, description: string]>;
+}> = [
+	{
+		module: 'codexum',
+		field: 'codexumSettings',
+		settings: [
+			['mentionedInPage', 'Mentioned in Page', 'you are mentioned on a page'],
+			['pageComments', 'Page Comments', 'a page you follow gets a comment'],
+			['pageSharedWithMe', 'Page Shared With Me', 'a page is shared with you'],
+			['pageUpdated', 'Page Updated', 'a page you follow is updated'],
+		],
+	},
+	{
+		module: 'roadmarq',
+		field: 'roadmarqSettings',
+		settings: [
+			['feedbackComments', 'Feedback Comments', 'feedback you follow gets a comment'],
+			['feedbackStatusChanged', 'Feedback Status Changed', 'the status of feedback changes'],
+			['feedbackVotes', 'Feedback Votes', 'feedback you follow gets a vote'],
+			['newFeedback', 'New Feedback', 'new feedback is posted'],
+		],
+	},
+];
+
+const moduleSettingFields = (
+	settings: Array<[name: string, label: string, description: string]>,
+): INodeProperties[] =>
+	settings.map(([name, displayName, what]) => ({
+		displayName,
+		name,
+		type: 'boolean',
+		default: true,
+		description: `Whether to notify when ${what}`,
+	}));
+
 const userOperations: OperationDef[] = [
 	{
 		operation: 'getCurrent',
@@ -130,21 +185,7 @@ const userOperations: OperationDef[] = [
 		name: 'Update Notification Channel',
 		action: 'Update the notifications of a channel',
 		description: 'Turn individual notifications on or off for the app, email or browser channel',
-		fields: [
-			{
-				displayName: 'Channel',
-				name: 'channel',
-				type: 'options',
-				options: [
-					{ name: 'App', value: 'app' },
-					{ name: 'Browser', value: 'browser' },
-					{ name: 'Email', value: 'email' },
-				],
-				default: 'app',
-				description: 'Where the notifications are delivered',
-			},
-			collection('Settings', 'settings', notificationSettingFields),
-		],
+		fields: [channelField, collection('Settings', 'settings', notificationSettingFields)],
 		run: async (ctx, p) => {
 			const channel = p.get<string>('channel');
 			const changes = p.get<IDataObject>('settings', {});
@@ -171,6 +212,55 @@ const userOperations: OperationDef[] = [
 					method: 'PUT',
 					path: `${NOTIFICATIONS_PATH}/${encodeURIComponent(channel)}`,
 					body,
+				}),
+			);
+		},
+	},
+	{
+		operation: 'updateModuleNotificationChannel',
+		name: 'Update Module Notification Channel',
+		action: 'Update the Codexum or Roadmarq notifications of a channel',
+		description:
+			'Turn individual Codexum (wiki) or Roadmarq (feedback) notifications on or off for the app, email or browser channel. Project Management notifications use Update Notification Channel',
+		fields: [
+			{
+				displayName: 'Module',
+				name: 'module',
+				type: 'options',
+				options: [
+					{ name: 'Codexum (Wiki)', value: 'codexum' },
+					{ name: 'Roadmarq (Feedback)', value: 'roadmarq' },
+				],
+				default: 'codexum',
+				description: 'The product whose notifications to change',
+			},
+			channelField,
+			...MODULE_NOTIFICATIONS.map(({ module, field, settings }) => ({
+				...collection('Settings', field, moduleSettingFields(settings)),
+				displayOptions: { show: { module: [module] } },
+			})),
+		],
+		run: async (ctx, p) => {
+			const module = p.get<string>('module');
+			const channel = p.get<string>('channel');
+			const known = MODULE_NOTIFICATIONS.find((m) => m.module === module);
+			const chosen = p.get<IDataObject>(known?.field ?? `${module}Settings`, {});
+			const settings: IDataObject = {};
+			for (const [name] of known?.settings ?? []) {
+				if (typeof chosen[name] === 'boolean') {
+					settings[name] = chosen[name];
+				}
+			}
+			if (Object.keys(settings).length === 0) {
+				throw new ApplicationError('Set at least one notification in Settings');
+			}
+
+			// Only the settings sent change (ModuleNotificationChannelDTO is a map of keys).
+			return oneItem(
+				await ctx.request({
+					method: 'PUT',
+					path: `${NOTIFICATIONS_PATH}/${encodeURIComponent(module)}/${encodeURIComponent(channel)}`,
+					body: { settings },
 				}),
 			);
 		},

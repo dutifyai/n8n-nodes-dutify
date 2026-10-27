@@ -21,6 +21,8 @@ import { savedFilter, taskSharing, timeEntry } from './resources/taskExtras';
 import { activityLog, notification, user } from './resources/userActivity';
 import { pmWebhook } from './resources/pmWebhook';
 import { call, lens, recording } from './resources/hub';
+import { calendarEvent } from './resources/hubCalendar';
+import { hubIntegration, hubWorkspace } from './resources/hubWorkspace';
 import { meetingWebhook } from './resources/meetingWebhook';
 import { bug, featureRequest } from './resources/roadmarq';
 import { view } from './resources/view';
@@ -62,6 +64,9 @@ export const resources: ResourceDef[] = [
 	recording,
 	lens,
 	meetingWebhook,
+	hubWorkspace,
+	hubIntegration,
+	calendarEvent,
 ];
 
 /** Copies a field with `show` conditions merged into its own displayOptions. */

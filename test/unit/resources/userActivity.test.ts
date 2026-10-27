@@ -41,6 +41,7 @@ describe('registration', () => {
 			'updateCurrent',
 			'getNotificationSettings',
 			'updateNotificationChannel',
+			'updateModuleNotificationChannel',
 			'getAvatarUrl',
 		]);
 		expect(notification.value).toBe('notification');
@@ -60,6 +61,79 @@ describe('registration', () => {
 		expect(user.workspaceScoped).toBe(true);
 		expect(notification.workspaceScoped).toBe(true);
 		expect(activityLog.workspaceScoped).toBe(true);
+	});
+});
+
+describe('user.updateModuleNotificationChannel', () => {
+	// Catalog (Users): PUT /users/settings/notifications/{module}/{channel}, body
+	// ModuleNotificationChannelDTO = { settings: { <key>: boolean } }. PM itself is refused there.
+	it('PUTs the chosen Codexum settings as a settings map to /codexum/{channel}', async () => {
+		const ctx = fakeContext([{ settings: { pageUpdated: false } }]);
+		const out = await run(user, 'updateModuleNotificationChannel', ctx, {
+			module: 'codexum',
+			channel: 'email',
+			codexumSettings: { pageUpdated: false, mentionedInPage: true },
+		});
+		expect(ctx.calls).toEqual([
+			{
+				method: 'PUT',
+				path: '/mp/api/v1/users/settings/notifications/codexum/email',
+				body: { settings: { pageUpdated: false, mentionedInPage: true } },
+			},
+		]);
+		expect(out).toEqual([{ json: { settings: { pageUpdated: false } } }]);
+	});
+
+	it('PUTs the chosen Roadmarq settings to /roadmarq/{channel}, ignoring the other module', async () => {
+		const ctx = fakeContext([{}]);
+		await run(user, 'updateModuleNotificationChannel', ctx, {
+			module: 'roadmarq',
+			channel: 'app',
+			roadmarqSettings: { feedbackVotes: false },
+			codexumSettings: { pageUpdated: false },
+		});
+		expect(ctx.calls[0]).toEqual({
+			method: 'PUT',
+			path: '/mp/api/v1/users/settings/notifications/roadmarq/app',
+			body: { settings: { feedbackVotes: false } },
+		});
+	});
+
+	it('refuses an update that sets nothing, before any request', async () => {
+		const ctx = fakeContext([]);
+		await expect(
+			run(user, 'updateModuleNotificationChannel', ctx, {
+				module: 'codexum',
+				channel: 'app',
+				codexumSettings: {},
+			}),
+		).rejects.toThrow(/at least one/i);
+		expect(ctx.calls).toEqual([]);
+	});
+
+	it('offers Codexum and Roadmarq only (PM has its own channel endpoint) and the three channels', () => {
+		const values = (name: string) =>
+			(fieldOf(user, 'updateModuleNotificationChannel', name)?.options as Array<{ value: string }>)
+				.map((o) => o.value)
+				.sort();
+		expect(values('module')).toEqual(['codexum', 'roadmarq']);
+		expect(values('channel')).toEqual(['app', 'browser', 'email']);
+		const keys = (name: string) =>
+			(fieldOf(user, 'updateModuleNotificationChannel', name)?.options as Array<{ name: string }>)
+				.map((o) => o.name)
+				.sort();
+		expect(keys('codexumSettings')).toEqual([
+			'mentionedInPage',
+			'pageComments',
+			'pageSharedWithMe',
+			'pageUpdated',
+		]);
+		expect(keys('roadmarqSettings')).toEqual([
+			'feedbackComments',
+			'feedbackStatusChanged',
+			'feedbackVotes',
+			'newFeedback',
+		]);
 	});
 });
 

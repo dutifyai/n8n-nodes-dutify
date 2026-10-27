@@ -343,6 +343,15 @@ const operations: OperationDef[] = [
 			path: `${webhookPath(p)}/deliveries/${encodeURIComponent(p.get<string>('delivery'))}/replay`,
 		}),
 	},
+	{
+		operation: 'listEventTypes',
+		name: 'Get Event Types',
+		action: 'Get the event types a webhook can subscribe to',
+		description:
+			'List every event type a webhook can subscribe to, across Project Management, Codexum and Roadmarq, each with its product, a description and the scope types that can narrow it',
+		fields: [],
+		build: (p) => ({ method: 'GET', path: `${webhooksPath(p)}/event-types` }),
+	},
 ];
 
 /** Outgoing PM webhooks (PM "Webhook Resource"). */

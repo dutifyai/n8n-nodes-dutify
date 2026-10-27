@@ -10,7 +10,11 @@ import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
 import { resolveTaskId } from '../../shared/taskRefs';
 import { dutifyRequest, encodePath } from '../../shared/transport';
 import type { HubWebhookRow, RequestSpec } from '../../shared/types';
-import { fetchAccessibleWorkspaces, type Fetch } from '../../shared/workspaces';
+import {
+	fetchAccessibleWorkspaces,
+	resolveHubWorkspace,
+	type Fetch,
+} from '../../shared/workspaces';
 
 /* ---------- workspaces ---------- */
 
@@ -877,6 +881,125 @@ export function hubRecordingOptions(rows: HubCallRow[] | null | undefined): INod
 	);
 }
 
+/* ---------- Hub integration targets (send a call's action items) ---------- */
+
+const hubWorkspacePath = (uuid: string, version: 'v1' | 'v2') =>
+	encodePath`/api/${version}/workspaces/${uuid}`;
+
+export function jiraCloudsSpec(uuid: string): RequestSpec {
+	return { method: 'GET', path: `${hubWorkspacePath(uuid, 'v2')}/integrations/jira/clouds` };
+}
+
+export function jiraProjectsSpec(uuid: string, cloudId: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: `${hubWorkspacePath(uuid, 'v2')}/integrations/jira/clouds/${encodeURIComponent(cloudId)}/projects`,
+	};
+}
+
+export function jiraCloudOptions(
+	rows: Array<{ cloudId?: string; name?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (Array.isArray(rows) ? rows : [])
+		.filter((r) => r.cloudId)
+		.map((r) => ({ name: r.name || (r.cloudId as string), value: r.cloudId as string }));
+}
+
+export function jiraProjectOptions(
+	rows: Array<{ id?: string; key?: string; name?: string }> | null | undefined,
+): INodePropertyOptions[] {
+	return (Array.isArray(rows) ? rows : [])
+		.filter((r) => r.id)
+		.map((r) => {
+			const name = r.name || (r.id as string);
+
+			return { name: r.key ? `${name} (${r.key})` : name, value: r.id as string };
+		});
+}
+
+export function airtableBasesSpec(uuid: string): RequestSpec {
+	return { method: 'GET', path: `${hubWorkspacePath(uuid, 'v2')}/integrations/airtable/bases` };
+}
+
+export function airtableTablesSpec(uuid: string, baseId: string): RequestSpec {
+	return {
+		method: 'GET',
+		path: `${hubWorkspacePath(uuid, 'v2')}/integrations/airtable/bases/${encodeURIComponent(baseId)}/tables`,
+	};
+}
+
+type NamedRow = { id?: string; name?: string };
+
+const namedOptions = (rows: NamedRow[] | null | undefined): INodePropertyOptions[] =>
+	(Array.isArray(rows) ? rows : [])
+		.filter((r) => r.id)
+		.map((r) => ({ name: r.name || (r.id as string), value: r.id as string }));
+
+/** AirtableBaseList: `{ bases: [...] }`. */
+export function airtableBaseOptions(
+	list: { bases?: NamedRow[] } | null | undefined,
+): INodePropertyOptions[] {
+	return namedOptions(list?.bases);
+}
+
+export function airtableTableOptions(rows: NamedRow[] | null | undefined): INodePropertyOptions[] {
+	return namedOptions(rows);
+}
+
+/* ---------- Hub calendar ---------- */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The picker's window: the last 7 days and the next 60. */
+export function calendarEventsSpec(now: Date = new Date()): RequestSpec {
+	return {
+		method: 'GET',
+		path: '/api/v1/calendar/events',
+		qs: {
+			startDate: new Date(now.getTime() - 7 * DAY_MS).toISOString(),
+			endDate: new Date(now.getTime() + 60 * DAY_MS).toISOString(),
+		},
+	};
+}
+
+/** A calendar-events-api row, as far as the pickers read it. */
+interface CalendarEventRow {
+	eventId?: string;
+	id?: string;
+	subject?: string;
+	summary?: string;
+	startDateTime?: string;
+	start?: string;
+	seriesMasterId?: string | null;
+}
+
+const eventTitle = (e: CalendarEventRow) => e.subject || e.summary || 'Untitled event';
+
+export function calendarEventOptions(
+	rows: CalendarEventRow[] | null | undefined,
+): INodePropertyOptions[] {
+	return (Array.isArray(rows) ? rows : [])
+		.filter((e) => e.eventId || e.id)
+		.map((e) => ({
+			name: `${eventTitle(e)}${dayOf(e.startDateTime ?? e.start)}`,
+			value: String(e.eventId ?? e.id),
+		}));
+}
+
+/** One option per recurring series, named after its first listed occurrence. */
+export function calendarSeriesOptions(
+	rows: CalendarEventRow[] | null | undefined,
+): INodePropertyOptions[] {
+	const seen = new Map<string, string>();
+	for (const e of Array.isArray(rows) ? rows : []) {
+		if (e.seriesMasterId && !seen.has(e.seriesMasterId)) {
+			seen.set(e.seriesMasterId, eventTitle(e));
+		}
+	}
+
+	return [...seen].map(([value, name]) => ({ name, value }));
+}
+
 /* ---------- Hub meeting webhooks ---------- */
 
 /** The caller's webhooks; Hub shows a key only those bound to the X-Dutify-Workspace workspace. */
@@ -924,6 +1047,27 @@ async function loadContext(ctx: ILoadOptionsFunctions, space?: string, extra: ID
 	const qs: IDataObject = { ...(space ? { space } : {}), ...extra };
 
 	return (await dutifyRequest.call(ctx, contextSpec(workspace, qs), workspace)) as WorkspaceContext;
+}
+
+/**
+ * A Hub integration picker: finds the workspace UUID, then loads. With `parent`, waits until that
+ * field (the Jira site, the Airtable base) is chosen. A workspace without the integration makes
+ * Hub answer 404 "Integration Not Found", which n8n shows as the reason the list is empty.
+ */
+async function hubTargets(
+	ctx: ILoadOptionsFunctions,
+	parent: string,
+	load: (fetch: Fetch, uuid: string, parentValue: string) => Promise<INodePropertyOptions[]>,
+): Promise<INodePropertyOptions[]> {
+	const workspace = selectedWorkspace(ctx);
+	const parentValue = parent ? optionalParam(ctx, parent) : '';
+	if (!workspace || (parent && !parentValue)) {
+		return [];
+	}
+	const fetch: Fetch = async (spec) => await dutifyRequest.call(ctx, spec, workspace);
+	const { id } = await resolveHubWorkspace(fetch, workspace);
+
+	return await load(fetch, id as string, parentValue);
 }
 
 async function loadSprintGroups(ctx: ILoadOptionsFunctions): Promise<SprintGroupRow[]> {
@@ -1349,6 +1493,62 @@ export const loadOptions: NonNullable<NonNullable<INodeType['methods']>['loadOpt
 			hubRecordingOptions(
 				(await dutifyRequest.call(this, hubCallsSpec(), workspace)) as Parameters<
 					typeof hubRecordingOptions
+				>[0],
+			),
+		);
+	},
+	async getJiraClouds(this: ILoadOptionsFunctions) {
+		return await hubTargets(this, '', async (fetch, uuid) =>
+			jiraCloudOptions(
+				(await fetch(jiraCloudsSpec(uuid))) as Parameters<typeof jiraCloudOptions>[0],
+			),
+		);
+	},
+	async getJiraProjects(this: ILoadOptionsFunctions) {
+		return await hubTargets(this, 'jiraCloud', async (fetch, uuid, cloud) =>
+			jiraProjectOptions(
+				(await fetch(jiraProjectsSpec(uuid, cloud))) as Parameters<typeof jiraProjectOptions>[0],
+			),
+		);
+	},
+	async getAirtableBases(this: ILoadOptionsFunctions) {
+		return await hubTargets(this, '', async (fetch, uuid) =>
+			airtableBaseOptions(
+				(await fetch(airtableBasesSpec(uuid))) as Parameters<typeof airtableBaseOptions>[0],
+			),
+		);
+	},
+	async getAirtableTables(this: ILoadOptionsFunctions) {
+		return await hubTargets(this, 'airtableBase', async (fetch, uuid, base) =>
+			airtableTableOptions(
+				(await fetch(airtableTablesSpec(uuid, base))) as Parameters<typeof airtableTableOptions>[0],
+			),
+		);
+	},
+	async getCalendarEvents(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return await orNoneWhenForbidden(async () =>
+			calendarEventOptions(
+				(await dutifyRequest.call(this, calendarEventsSpec(), workspace)) as Parameters<
+					typeof calendarEventOptions
+				>[0],
+			),
+		);
+	},
+	async getCalendarSeries(this: ILoadOptionsFunctions) {
+		const workspace = selectedWorkspace(this);
+		if (!workspace) {
+			return [];
+		}
+
+		return await orNoneWhenForbidden(async () =>
+			calendarSeriesOptions(
+				(await dutifyRequest.call(this, calendarEventsSpec(), workspace)) as Parameters<
+					typeof calendarSeriesOptions
 				>[0],
 			),
 		);

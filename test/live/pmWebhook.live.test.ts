@@ -183,6 +183,18 @@ liveDescribe('PM webhook — live', () => {
 		expect(feedback.every((v) => String(v).startsWith('feedback.'))).toBe(true);
 	});
 
+	it('listEventTypes returns one item per event type of every product, with its description and scopes', async () => {
+		const rows = await run('pmWebhook', 'listEventTypes');
+		expect([...new Set(rows.map((r) => r.product))].sort()).toEqual(['codexum', 'pm', 'roadmarq']);
+		const created = rows.find((r) => r.type === 'task-created');
+		expect(typeof created?.description).toBe('string');
+		expect(Array.isArray(created?.scopes)).toBe(true);
+		// The node's static PM list is exactly what PM offers for product pm.
+		const pm = rows.filter((r) => r.product === 'pm').map((r) => String(r.type));
+		const offered = (await loadOptionsOf('getPmEventTypes')).map((o) => String(o.value));
+		expect(offered.sort()).toEqual(pm.sort());
+	});
+
 	it('pageScopeOffersOnlyPageEvents: a wiki page scope lists only the events PM lets a page scope take', async () => {
 		const rows = (await rawRequest({
 			method: 'GET',

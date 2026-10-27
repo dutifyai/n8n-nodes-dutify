@@ -7,9 +7,11 @@ import {
 	isSet,
 	jsonField,
 	oneItem,
+	splitList,
 	toInstant,
 } from '../../../shared/fieldHelpers';
-import { encodePath } from '../../../shared/transport';
+import { dutifyErrorOf, encodePath } from '../../../shared/transport';
+import { resolveHubWorkspace } from '../../../shared/workspaces';
 import type {
 	BinaryStream,
 	ByteStream,
@@ -80,6 +82,106 @@ const queryField = (description: string): INodeProperties => ({
 const SEARCH_DESCRIPTION =
 	'Text to look for in the call name, description, attendees and transcript. Leave empty to match every call.';
 
+const callPath = (p: ParamReader) => `${CALLS}/${encodeURIComponent(p.get<string>('call'))}`;
+
+/** A multi-select value as a list of IDs, refused when empty. */
+function nonEmptyList(value: unknown, what: string): string[] {
+	const ids = splitList(value);
+	if (ids.length === 0) {
+		throw new ApplicationError(`Choose at least one ${what}`);
+	}
+
+	return ids;
+}
+
+function requiredText(value: string, what: string): string {
+	if (!isSet(value) || value.trim() === '') {
+		throw new ApplicationError(`${what} is empty`);
+	}
+
+	return value.trim();
+}
+
+const isForbidden = (error: unknown) => dutifyErrorOf(error).httpCode === '403';
+
+/**
+ * Hub answers `true` to a selection even when the workspace has no connection to the vendor
+ * (and even for an unknown call), then drops it. So the vendor's connection is checked first, and
+ * a missing one is refused here. A key that may not read integrations (403) skips the check.
+ */
+async function requireConnection(
+	ctx: OperationContext,
+	p: ParamReader,
+	vendor: string,
+	systems: string[],
+): Promise<void> {
+	const { id } = await resolveHubWorkspace(async (spec) => await ctx.request(spec), p.workspace);
+	const FORBIDDEN = Symbol('forbidden');
+	const rows = await ctx
+		.request({
+			method: 'GET',
+			path: `${encodePath`/api/v1/workspaces/${id as string}`}/integrations`,
+		})
+		.catch(async (error: unknown) =>
+			isForbidden(error) ? FORBIDDEN : await Promise.reject(error),
+		);
+	if (rows === FORBIDDEN) {
+		return;
+	}
+	const connected = (Array.isArray(rows) ? (rows as IDataObject[]) : []).some(
+		(row) => systems.includes(String(row.integrationSystem)) && row.status === 'CONNECTED',
+	);
+	if (!connected) {
+		throw new ApplicationError(
+			`This workspace has no connected ${vendor} integration, so Dutify would accept the action items and drop them. Connect ${vendor} in Dutify Hub > Integrations first.`,
+		);
+	}
+}
+
+/** The call's UUID, which the selection endpoints take instead of its integer ID. */
+async function callUuid(ctx: OperationContext, p: ParamReader): Promise<string> {
+	const row = (await ctx.request({ method: 'GET', path: callPath(p) })) as {
+		call?: { callUuid?: string };
+	} | null;
+	const uuid = row?.call?.callUuid;
+	if (!uuid) {
+		throw new ApplicationError(`Hub returned no UUID for call ${p.get<string>('call')}`);
+	}
+
+	return uuid;
+}
+
+/** Hub's "send selection": the call's action items become tasks, issues or rows in a vendor. */
+function sendOperation(options: {
+	operation: string;
+	vendor: string;
+	systems: string[];
+	segment: string;
+	fields: INodeProperties[];
+	target: (p: ParamReader) => IDataObject;
+}): OperationDef {
+	const { operation, vendor, systems, segment, fields, target } = options;
+
+	return {
+		operation,
+		name: `Send to ${vendor}`,
+		action: `Send the action items of a call to ${vendor}`,
+		description: `Create a ${vendor} item for each action item of the call. Dutify does this in the background: accepted: true means the request was accepted, not that the items arrived`,
+		fields: [callField(), ...fields],
+		run: async (ctx, p) => {
+			const body = target(p);
+			await requireConnection(ctx, p, vendor, systems);
+			const response = await ctx.request({
+				method: 'POST',
+				path: `${CALLS}/selection/${segment}`,
+				body: { callUUID: await callUuid(ctx, p), ...body },
+			});
+
+			return [{ json: { accepted: response === true || response === 'true' } }];
+		},
+	};
+}
+
 const callOperations: OperationDef[] = [
 	{
 		operation: 'list',
@@ -145,10 +247,133 @@ const callOperations: OperationDef[] = [
 		action: 'Get a call',
 		description: 'Get one call with its summary, attendees, recordings and action items',
 		fields: [callField()],
-		build: (p) => ({
-			method: 'GET',
-			path: `${CALLS}/${encodeURIComponent(p.get<string>('call'))}`,
+		build: (p) => ({ method: 'GET', path: callPath(p) }),
+	},
+	{
+		operation: 'delete',
+		name: 'Delete',
+		action: 'Delete a call',
+		description:
+			'Permanently delete a call with its recording media, transcript and notes. This cannot be undone',
+		fields: [callField()],
+		build: (p) => ({ method: 'DELETE', path: callPath(p) }),
+	},
+	sendOperation({
+		operation: 'sendToJira',
+		vendor: 'Jira',
+		systems: ['JIRA', 'ATLASSIAN'],
+		segment: 'jira',
+		fields: [
+			{
+				...idPicker('Jira Site Name or ID', 'jiraCloud', 'getJiraClouds', undefined),
+				description:
+					'The Jira site (cloud) to create the issues in. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+			{
+				displayName: 'Jira Project Names or IDs',
+				name: 'jiraProjects',
+				type: 'multiOptions',
+				typeOptions: { loadOptionsMethod: 'getJiraProjects', loadOptionsDependsOn: ['jiraCloud'] },
+				default: [],
+				required: true,
+				description:
+					'The projects that get an issue per action item. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+		],
+		target: (p) => ({
+			cloudId: p.get<string>('jiraCloud'),
+			projectIds: nonEmptyList(p.get<unknown>('jiraProjects', []), 'Jira project'),
 		}),
+	}),
+	sendOperation({
+		operation: 'sendToClickUp',
+		vendor: 'ClickUp',
+		systems: ['CLICKUP'],
+		segment: 'clickup',
+		fields: [
+			{
+				displayName: 'ClickUp List ID',
+				name: 'clickUpList',
+				type: 'string',
+				default: '',
+				required: true,
+				placeholder: 'e.g. 901234567890',
+				description:
+					'The ClickUp list that gets a task per action item: the number after /li/ in the list URL. Dutify does not list ClickUp lists, so it is typed here.',
+			},
+		],
+		target: (p) => ({
+			selectedListId: requiredText(p.get<string>('clickUpList', ''), 'ClickUp List ID'),
+		}),
+	}),
+	sendOperation({
+		operation: 'sendToAirtable',
+		vendor: 'Airtable',
+		systems: ['AIRTABLE'],
+		segment: 'airtable',
+		fields: [
+			idPicker('Airtable Base Name or ID', 'airtableBase', 'getAirtableBases', undefined),
+			{
+				displayName: 'Airtable Table Names or IDs',
+				name: 'airtableTables',
+				type: 'multiOptions',
+				typeOptions: {
+					loadOptionsMethod: 'getAirtableTables',
+					loadOptionsDependsOn: ['airtableBase'],
+				},
+				default: [],
+				required: true,
+				description:
+					'The tables that get a row per action item. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+			},
+		],
+		target: (p) => ({
+			baseId: p.get<string>('airtableBase'),
+			tableIds: nonEmptyList(p.get<unknown>('airtableTables', []), 'Airtable table'),
+		}),
+	}),
+	{
+		operation: 'setCustomPrompt',
+		name: 'Set Custom Prompt',
+		action: 'Set the custom prompt of a call',
+		description:
+			'Set your own prompt for this call. It shapes only your version of the notes and is stored only: run Recording > Regenerate Summary to apply it',
+		fields: [
+			callField(),
+			{
+				displayName: 'Custom Prompt',
+				name: 'customPrompt',
+				type: 'string',
+				typeOptions: { rows: 4 },
+				default: '',
+				required: true,
+				description:
+					'Instructions for the AI when it analyses this call. It replaces your current prompt for the call.',
+			},
+		],
+		build: (p) => {
+			const prompt = p.get<string>('customPrompt', '');
+			if (prompt.trim() === '') {
+				throw new ApplicationError(
+					'Custom Prompt is empty. To remove the prompt, use Clear Custom Prompt.',
+				);
+			}
+
+			return {
+				method: 'PUT',
+				path: `${callPath(p)}/custom-prompt`,
+				body: { customPrompt: prompt },
+			};
+		},
+	},
+	{
+		operation: 'clearCustomPrompt',
+		name: 'Clear Custom Prompt',
+		action: 'Clear the custom prompt of a call',
+		description:
+			'Remove your own prompt for this call. Your next Regenerate Summary runs without it',
+		fields: [callField()],
+		build: (p) => ({ method: 'DELETE', path: `${callPath(p)}/custom-prompt` }),
 	},
 ];
 

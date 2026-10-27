@@ -75,6 +75,30 @@ liveDescribe('user — live', () => {
 		});
 	});
 
+	// The catalog describes the per-module endpoint's Codexum and Roadmarq side as "forwards to
+	// their backend (stubbed for now)": it answers with the settings it was sent, so the answer is
+	// what is checked. The value written is the one read first, so nothing changes either way.
+	it.each([
+		['codexum', 'codexumSettings', 'pageUpdated'],
+		['roadmarq', 'roadmarqSettings', 'feedbackVotes'],
+	])(
+		'updateModuleNotificationChannel sends a %s setting and answers with it',
+		async (module, field, key) => {
+			const all = (await runOne('user', 'getNotificationSettings')) as Record<string, unknown>;
+			const app = ((all[module] as Record<string, unknown>)?.appChannel ?? {}) as Record<
+				string,
+				Record<string, boolean>
+			>;
+			const current = app.settings?.[key] !== false;
+			const answer = await runOne('user', 'updateModuleNotificationChannel', {
+				module,
+				channel: 'app',
+				[field]: { [key]: current },
+			});
+			expect(answer).toEqual({ settings: { [key]: current } });
+		},
+	);
+
 	// The test user has no avatar and the node cannot upload one, so only the 404 is checked.
 	it('getAvatarUrl for a member without an avatar answers 404', async () => {
 		const error = await runError('user', 'getAvatarUrl', { user: live.userId });

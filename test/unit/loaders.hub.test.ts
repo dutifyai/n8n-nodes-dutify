@@ -1,11 +1,22 @@
 import type { ILoadOptionsFunctions } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import {
+	airtableBaseOptions,
+	airtableBasesSpec,
+	airtableTableOptions,
+	airtableTablesSpec,
+	calendarEventOptions,
+	calendarEventsSpec,
+	calendarSeriesOptions,
 	hubCallOptions,
 	hubCallsSpec,
 	hubRecordingOptions,
 	hubWebhookOptions,
 	hubWebhooksSpec,
+	jiraCloudOptions,
+	jiraCloudsSpec,
+	jiraProjectOptions,
+	jiraProjectsSpec,
 	loadOptions,
 } from '../../nodes/Dutify/loaders';
 
@@ -136,5 +147,112 @@ describe('Hub meeting webhook picker', () => {
 				ctxWith('ws-1', async () => [{ id: 3, url: 'https://x.test' }]),
 			),
 		).toEqual([{ name: 'https://x.test', value: '3' }]);
+	});
+});
+
+describe('Hub integration target pickers (catalog: Jira Resource V 2, Airtable Resource V 2)', () => {
+	const UUID = 'c0b647a5-2e8f-4d74-b7b9-8cc2257a07ab';
+
+	it('Jira clouds and projects are read under the workspace UUID', () => {
+		expect(jiraCloudsSpec(UUID)).toEqual({
+			method: 'GET',
+			path: `/api/v2/workspaces/${UUID}/integrations/jira/clouds`,
+		});
+		expect(jiraProjectsSpec(UUID, 'cloud/1')).toEqual({
+			method: 'GET',
+			path: `/api/v2/workspaces/${UUID}/integrations/jira/clouds/cloud%2F1/projects`,
+		});
+	});
+
+	it('Jira options: clouds by cloudId, projects by id with their key', () => {
+		expect(
+			jiraCloudOptions([{ cloudId: 'c1', name: 'acme' }, { cloudId: 'c2' }, { name: 'no id' }]),
+		).toEqual([
+			{ name: 'acme', value: 'c1' },
+			{ name: 'c2', value: 'c2' },
+		]);
+		expect(
+			jiraProjectOptions([
+				{ id: '10001', key: 'APP', name: 'App' },
+				{ id: '10002', name: 'Ops' },
+				{ key: 'X' },
+			]),
+		).toEqual([
+			{ name: 'App (APP)', value: '10001' },
+			{ name: 'Ops', value: '10002' },
+		]);
+		expect(jiraCloudOptions(null)).toEqual([]);
+	});
+
+	it('Airtable bases (a {bases} list) and tables are read under the workspace UUID', () => {
+		expect(airtableBasesSpec(UUID)).toEqual({
+			method: 'GET',
+			path: `/api/v2/workspaces/${UUID}/integrations/airtable/bases`,
+		});
+		expect(airtableTablesSpec(UUID, 'app1')).toEqual({
+			method: 'GET',
+			path: `/api/v2/workspaces/${UUID}/integrations/airtable/bases/app1/tables`,
+		});
+		expect(airtableBaseOptions({ bases: [{ id: 'app1', name: 'CRM' }, { name: 'x' }] })).toEqual([
+			{ name: 'CRM', value: 'app1' },
+		]);
+		expect(airtableBaseOptions(undefined)).toEqual([]);
+		expect(airtableTableOptions([{ id: 'tbl1', name: 'Tasks' }, { id: 'tbl2' }])).toEqual([
+			{ name: 'Tasks', value: 'tbl1' },
+			{ name: 'tbl2', value: 'tbl2' },
+		]);
+	});
+});
+
+describe('Hub calendar pickers (catalog: Calendar)', () => {
+	it('lists the events from 7 days ago to 60 days ahead', () => {
+		expect(calendarEventsSpec(new Date('2026-10-28T12:00:00Z'))).toEqual({
+			method: 'GET',
+			path: '/api/v1/calendar/events',
+			qs: { startDate: '2026-10-21T12:00:00.000Z', endDate: '2026-12-27T12:00:00.000Z' },
+		});
+	});
+
+	const events = [
+		{
+			eventId: 'e1',
+			subject: 'Standup',
+			startDateTime: '2026-10-29T09:00:00',
+			seriesMasterId: 's1',
+		},
+		{
+			eventId: 'e2',
+			subject: 'Standup',
+			startDateTime: '2026-10-30T09:00:00',
+			seriesMasterId: 's1',
+		},
+		{ id: 'e3', summary: 'Kickoff', start: '2026-11-02T10:00:00Z', seriesMasterId: null },
+		{ subject: 'no id' },
+	];
+
+	it('event options are valued by eventId, dated', () => {
+		expect(calendarEventOptions(events)).toEqual([
+			{ name: 'Standup (2026-10-29)', value: 'e1' },
+			{ name: 'Standup (2026-10-30)', value: 'e2' },
+			{ name: 'Kickoff (2026-11-02)', value: 'e3' },
+		]);
+		expect(calendarEventOptions(null)).toEqual([]);
+	});
+
+	it('series options are one per seriesMasterId', () => {
+		expect(calendarSeriesOptions(events)).toEqual([{ name: 'Standup', value: 's1' }]);
+	});
+
+	it('are wired as loadOptions methods', () => {
+		for (const name of [
+			'getJiraClouds',
+			'getJiraProjects',
+			'getAirtableBases',
+			'getAirtableTables',
+			'getCalendarEvents',
+			'getCalendarSeries',
+		]) {
+			expect(typeof loadOptions[name]).toBe('function');
+		}
 	});
 });

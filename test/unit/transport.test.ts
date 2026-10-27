@@ -64,6 +64,37 @@ describe('buildHttpOptions', () => {
 	});
 });
 
+describe('buildHttpOptions raw text body', () => {
+	it('sends a string body verbatim with its content type (Hub reads a bare @RequestBody String)', () => {
+		const opts = buildHttpOptions(
+			'https://dutify.ai',
+			{ method: 'PUT', path: '/p', body: 'Summarise in bullets', contentType: 'text/plain' },
+			'ws-1',
+		);
+		expect(opts.body).toBe('Summarise in bullets');
+		expect(opts.headers).toMatchObject({ 'Content-Type': 'text/plain' });
+	});
+
+	it('keeps an empty string body (it clears the setting) rather than dropping it', () => {
+		const opts = buildHttpOptions(
+			'https://dutify.ai',
+			{ method: 'PUT', path: '/p', body: '', contentType: 'text/plain' },
+			'',
+		);
+		expect(opts.body).toBe('');
+		expect(opts.headers).toMatchObject({ 'Content-Type': 'text/plain' });
+	});
+
+	it('sets no Content-Type of its own for an object body', () => {
+		const opts = buildHttpOptions(
+			'https://dutify.ai',
+			{ method: 'POST', path: '/p', body: {} },
+			'',
+		);
+		expect(opts.headers ?? {}).not.toHaveProperty('Content-Type');
+	});
+});
+
 describe('buildHttpOptions timeout', () => {
 	it('passes spec.timeout through, and sets none otherwise', () => {
 		const base = { method: 'POST' as const, path: '/api/lens/chat' };
