@@ -243,10 +243,12 @@ liveDescribe('PM webhook — live', () => {
 	}) => {
 		const key = wikiKey('NH');
 		await runOne('codexumSpace', 'create', { key, name: `n8n-live hooks ${runId}` });
-		cleanup.add(
-			`wiki space ${key}`,
-			async () => await runOne('codexumSpace', 'delete', { space: key }),
-		);
+		let spaceGone = false;
+		cleanup.add(`wiki space ${key}`, async () => {
+			if (!spaceGone) {
+				await runOne('codexumSpace', 'delete', { space: key });
+			}
+		});
 
 		const url = `${HOOK_PREFIX}wiki-${runId}`;
 		const staticData: IDataObject = {};
@@ -299,6 +301,92 @@ liveDescribe('PM webhook — live', () => {
 		expect(staticData).toEqual({});
 		const gone = await runError('pmWebhook', 'get', { webhook });
 		expect(gone.httpCode).toBe('404');
+		// FREE allows one wiki space: free it for the next test.
+		await runOne('codexumSpace', 'delete', { space: key });
+		spaceGone = true;
+	});
+
+	/** A page-scoped trigger webhook; `remove` deletes the page for good, or its whole space (then true). */
+	async function scopeGoneRoundTrip(
+		skip: (note: string) => void,
+		tag: string,
+		remove: (space: string, page: IDataObject) => Promise<boolean>,
+	) {
+		const key = wikiKey(tag);
+		await runOne('codexumSpace', 'create', { key, name: `n8n-live gone ${runId}` });
+		let spaceGone = false;
+		cleanup.add(`wiki space ${key}`, async () => {
+			if (!spaceGone) {
+				await runOne('codexumSpace', 'delete', { space: key });
+			}
+		});
+		const page = await runOne('codexumPage', 'create', { space: key, title: `Gone ${runId}` });
+
+		const url = `${HOOK_PREFIX}gone-${tag}-${runId}`;
+		const params: IDataObject = {
+			source: 'codexum',
+			workspace: workspaceLocator(),
+			wikiEvents: ['wiki.page.updated'],
+			wikiScopeType: 'WIKI_PAGE',
+			wikiScopePage: String(page.id),
+		};
+		const staticData: IDataObject = {};
+		const hooks = new DutifyTrigger().webhookMethods.default;
+		await hooks.create
+			.call(hookContextOf(params, url, staticData))
+			.catch(async (error: unknown) => {
+				if (isQuotaFull(error)) {
+					skip(`webhook quota full, cannot create: ${(error as Error).message}`);
+				}
+
+				return await Promise.reject(error);
+			});
+		const webhook = String(staticData.webhookId);
+		cleanup.add(`webhook ${webhook}`, async () => await runOne('pmWebhook', 'delete', { webhook }));
+
+		spaceGone = await remove(key, page);
+		let stored: IDataObject = {};
+		for (let i = 0; i < 30; i++) {
+			stored = await runOne('pmWebhook', 'get', { webhook });
+			if (stored.active === false) {
+				break;
+			}
+			await sleep(3000);
+		}
+		expect(stored).toMatchObject({ active: false, pauseReasonCode: 'SCOPE_ENTITY_GONE' });
+
+		// n8n re-activating the workflow: the paused webhook is not resumed, the error says why.
+		const error = (await hooks.create.call(hookContextOf(params, url, {})).then(
+			() => undefined,
+			(e: unknown) => e,
+		)) as Error | undefined;
+		expect(error?.message).toMatch(/^The scoped wiki page .*was deleted/);
+		expect((await runOne('pmWebhook', 'get', { webhook })).active).toBe(false);
+		if (!spaceGone) {
+			// FREE allows one wiki space: free it for the next test.
+			await runOne('codexumSpace', 'delete', { space: key });
+			spaceGone = true;
+		}
+	}
+
+	it('deletedPageScopePauses: deleting the scoped page for good pauses the webhook; reactivating names the deleted scope', async ({
+		skip,
+	}) => {
+		await scopeGoneRoundTrip(skip, 'NG', async (space, page) => {
+			await runOne('codexumPage', 'delete', { space, page: String(page.slug), permanent: true });
+
+			return false;
+		});
+	});
+
+	it('deletedSpacePausesPageScope: deleting the space pauses a webhook scoped to one of its pages', async ({
+		skip,
+	}) => {
+		await scopeGoneRoundTrip(skip, 'NS', async (space) => {
+			await runOne('codexumSpace', 'delete', { space });
+
+			return true;
+		});
 	});
 
 	it('a local n8n URL is refused by Dutify (use a public tunnel)', async () => {
