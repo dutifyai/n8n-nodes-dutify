@@ -39,7 +39,19 @@ describe('registration', () => {
 			'test',
 			'listDeliveries',
 			'replayDelivery',
+			'listEventTypes',
 		]);
+	});
+});
+
+describe('listEventTypes', () => {
+	// Catalog (Webhook Resource): GET /workspaces/{workspaceIdentifier}/webhooks/event-types.
+	it('GETs the event types of the workspace', () => {
+		expect(build('listEventTypes', {})).toEqual({ method: 'GET', path: `${WS}/event-types` });
+	});
+
+	it('takes no input but the workspace', () => {
+		expect(opOf('listEventTypes').fields).toEqual([]);
 	});
 });
 
