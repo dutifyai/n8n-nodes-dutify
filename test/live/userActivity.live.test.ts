@@ -78,12 +78,24 @@ liveDescribe('user — live', () => {
 	// The catalog describes the per-module endpoint's Codexum and Roadmarq side as "forwards to
 	// their backend (stubbed for now)": it answers with the settings it was sent, so the answer is
 	// what is checked. The value written is the one read first, so nothing changes either way.
+	// PM answers with the whole channel after the update: every key of the module, the one sent
+	// at its new value.
 	it.each([
-		['codexum', 'codexumSettings', 'pageUpdated'],
-		['roadmarq', 'roadmarqSettings', 'feedbackVotes'],
+		[
+			'codexum',
+			'codexumSettings',
+			'pageUpdated',
+			['mentionedInPage', 'pageComments', 'pageSharedWithMe', 'pageUpdated'],
+		],
+		[
+			'roadmarq',
+			'roadmarqSettings',
+			'feedbackVotes',
+			['feedbackComments', 'feedbackStatusChanged', 'feedbackVotes', 'newFeedback'],
+		],
 	])(
-		'updateModuleNotificationChannel sends a %s setting and answers with it',
-		async (module, field, key) => {
+		'updateModuleNotificationChannel sends a %s setting and answers with the whole channel',
+		async (module, field, key, keys) => {
 			const all = (await runOne('user', 'getNotificationSettings')) as Record<string, unknown>;
 			const app = ((all[module] as Record<string, unknown>)?.appChannel ?? {}) as Record<
 				string,
@@ -95,7 +107,12 @@ liveDescribe('user — live', () => {
 				channel: 'app',
 				[field]: { [key]: current },
 			});
-			expect(answer).toEqual({ settings: { [key]: current } });
+			const settings = (answer as { settings: Record<string, boolean> }).settings;
+			expect(Object.keys(settings).sort()).toEqual(keys);
+			expect(settings[key]).toBe(current);
+			for (const value of Object.values(settings)) {
+				expect(typeof value).toBe('boolean');
+			}
 		},
 	);
 
