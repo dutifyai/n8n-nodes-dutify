@@ -143,12 +143,11 @@ liveDescribe('team, member, invitation, import job — live', () => {
 
 	let cancelledInvitation = '';
 
-	// Backend gap: PM answers 400 OPERATION_NOT_ALLOWED, a code the catalog does not list for
-	// this endpoint (204, 401, 403, 404, 409, 500); the conflict it describes is the 409.
-	it.fails('backend gap: cancelling a cancelled invitation answers 409 as the catalog lists', async () => {
+	it('cancelling a cancelled invitation answers 409 INVITATION_NOT_PENDING', async () => {
 		expect(cancelledInvitation).not.toBe('');
 		const again = await runError('invitation', 'cancel', { invitation: cancelledInvitation });
 		expect(again.httpCode).toBe('409');
+		expect(JSON.stringify(again)).toContain('INVITATION_NOT_PENDING');
 	});
 
 	it('invitation send to someone who is already a member is refused (no mail)', async () => {
