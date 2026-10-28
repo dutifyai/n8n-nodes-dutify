@@ -217,8 +217,8 @@ describe('hubWorkspace', () => {
 		expect(out).toEqual([{ json: { workspaceId: UUID } }]);
 	});
 
-	it('setDefault with None PUTs workspaceId null, without looking the workspace up', async () => {
-		const ctx = fakeContext([undefined]);
+	it("setDefault Reset to Automatic PUTs workspaceId null, then returns Hub's automatic choice", async () => {
+		const ctx = fakeContext([undefined, { workspaceId: UUID }]);
 		const out = await opOf(hubWorkspace, 'setDefault').run!(
 			ctx,
 			reader({ defaultWorkspace: 'none' }),
@@ -229,8 +229,19 @@ describe('hubWorkspace', () => {
 				path: '/api/user/settings/default-workspace',
 				body: { workspaceId: null },
 			},
+			{ method: 'GET', path: '/api/user/settings/default-workspace' },
 		]);
-		expect(out).toEqual([{ json: { workspaceId: null } }]);
+		expect(out).toEqual([{ json: { workspaceId: UUID } }]);
+	});
+
+	it('setDefault names the reset choice "Reset to Automatic" and says what Hub picks', () => {
+		const options = field(hubWorkspace, 'setDefault', 'defaultWorkspace')?.options as
+			| IDataObject[]
+			| undefined;
+		const reset = (options ?? []).find((o) => o.value === 'none');
+		expect(reset?.name).toBe('Reset to Automatic');
+		expect(String(reset?.description)).toMatch(/workspace you own/);
+		expect((options ?? []).map((o) => o.name)).not.toContain('None');
 	});
 });
 
@@ -264,35 +275,33 @@ describe('hubIntegration', () => {
 		const ctx = fakeContext([workspaces, '']);
 		const out = await opOf(hubIntegration, 'setPreferred').run!(
 			ctx,
-			reader({ preferredIntegration: 'JIRA' }),
+			reader({ preferredIntegration: 'PM' }),
 		);
 		expect(ctx.calls[1]).toEqual({
 			method: 'PUT',
 			path: `${BASE}/settings/preferred-integration`,
-			body: '"JIRA"',
+			body: '"PM"',
 			contentType: 'application/json',
 		});
-		expect(out).toEqual([{ json: { preferredIntegration: 'JIRA' } }]);
+		expect(out).toEqual([{ json: { preferredIntegration: 'PM' } }]);
 	});
 
-	it('setPreferred offers the IntegrationSystem values of the catalog', () => {
+	it('setPreferred offers only PM (Dutify Cloud), the one value the catalog accepts', () => {
 		const options = field(hubIntegration, 'setPreferred', 'preferredIntegration')?.options as
 			| IDataObject[]
 			| undefined;
-		expect((options ?? []).map((o) => o.value).sort()).toEqual(
-			[
-				'AIRTABLE',
-				'ATLASSIAN',
-				'CLICKUP',
-				'COMPOSIO',
-				'EMAIL',
-				'GOOGLE',
-				'JIRA',
-				'PM',
-				'SLACK',
-				'TEAMS',
-			].sort(),
-		);
+		expect((options ?? []).map((o) => o.value)).toEqual(['PM']);
+		expect(String(options?.[0]?.name)).toMatch(/Dutify Cloud/);
+	});
+
+	it("setPreferred passes Hub's 400 UNSUPPORTED_TASK_SYSTEM through for another value", async () => {
+		const refusal = Object.assign(new Error('Dutify Cloud is the supported task system.'), {
+			httpCode: '400',
+		});
+		const ctx = fakeContext([workspaces, refusal]);
+		await expect(
+			opOf(hubIntegration, 'setPreferred').run!(ctx, reader({ preferredIntegration: 'JIRA' })),
+		).rejects.toBe(refusal);
 	});
 });
 

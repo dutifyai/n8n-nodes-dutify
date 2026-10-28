@@ -22,7 +22,8 @@ import type {
  * - Scopes: workspaces:read, members:read, workspace-settings:read/write, integrations:read,
  *   user-settings:read/write.
  * - The custom prompt and the preferred integration are bare @RequestBody values: the prompt is
- *   stored verbatim from a text body (an empty body clears it), the integration is a JSON string.
+ *   stored verbatim from a text body (an empty or blank body clears it, and GET then answers 204),
+ *   the integration is a JSON string.
  */
 
 /** The selected workspace's Hub UUID. */
@@ -33,6 +34,8 @@ async function workspaceUuid(ctx: OperationContext, p: ParamReader): Promise<str
 
 const settingsPath = (uuid: string, setting: string) =>
 	`${encodePath`/api/v1/workspaces/${uuid}`}/settings/${setting}`;
+
+const DEFAULT_WORKSPACE = { method: 'GET' as const, path: '/api/user/settings/default-workspace' };
 
 /** Members page zero-based; a request without page and size gets every member at once. */
 const MEMBER_PAGING: PaginationStyle = {
@@ -153,7 +156,7 @@ const workspaceOperations: OperationDef[] = [
 		description: 'Remove the custom AI prompt of the workspace',
 		fields: [],
 		run: async (ctx, p) => {
-			// Only an empty body clears it: Hub stores `null` or `""` as the prompt text.
+			// An empty body clears it; Get Custom Prompt then answers 204, as for one never set.
 			await ctx.request({
 				method: 'PUT',
 				path: settingsPath(await workspaceUuid(ctx, p), 'custom-prompt'),
@@ -169,16 +172,16 @@ const workspaceOperations: OperationDef[] = [
 		name: 'Get Default Workspace',
 		action: 'Get your default Hub workspace',
 		description:
-			'Get your default workspace: where your new calendar meetings go when they have none assigned. workspaceId is null when none is set',
+			'Get your default workspace: the one your new recordings are filed in. workspaceId is null only when you belong to no workspace',
 		fields: [],
-		build: () => ({ method: 'GET', path: '/api/user/settings/default-workspace' }),
+		build: () => ({ ...DEFAULT_WORKSPACE }),
 	},
 	{
 		operation: 'setDefault',
 		name: 'Set Default Workspace',
 		action: 'Set your default Hub workspace',
 		description:
-			'Make the selected workspace your default for new calendar meetings, or remove the default. An API key can only set its own workspace',
+			"Choose the workspace your new recordings are filed in, or reset it to Hub's automatic choice. An API key can only choose its own workspace",
 		fields: [
 			{
 				displayName: 'Default Workspace',
@@ -190,22 +193,29 @@ const workspaceOperations: OperationDef[] = [
 						value: 'selected',
 						description: 'Make the workspace selected above your default',
 					},
-					{ name: 'None', value: 'none', description: 'Remove your default workspace' },
+					{
+						// The value stays 'none' so saved workflows keep working.
+						name: 'Reset to Automatic',
+						value: 'none',
+						description:
+							'Let Hub choose: the workspace you own, else the first workspace you belong to. You always keep a default.',
+					},
 				],
 				default: 'selected',
 				description: 'What to set as your default workspace',
 			},
 		],
 		run: async (ctx, p) => {
-			const workspaceId =
-				p.get<string>('defaultWorkspace', 'selected') === 'none'
-					? null
-					: await workspaceUuid(ctx, p);
-			await ctx.request({
-				method: 'PUT',
-				path: '/api/user/settings/default-workspace',
-				body: { workspaceId },
-			});
+			if (p.get<string>('defaultWorkspace', 'selected') === 'none') {
+				// Hub resets the choice, then makes its automatic choice on the next read.
+				await ctx.request({ ...DEFAULT_WORKSPACE, method: 'PUT', body: { workspaceId: null } });
+
+				const chosen = (await ctx.request(DEFAULT_WORKSPACE)) as IDataObject | null;
+
+				return [{ json: { workspaceId: chosen?.workspaceId ?? null } }];
+			}
+			const workspaceId = await workspaceUuid(ctx, p);
+			await ctx.request({ ...DEFAULT_WORKSPACE, method: 'PUT', body: { workspaceId } });
 
 			return [{ json: { workspaceId } }];
 		},
@@ -222,19 +232,11 @@ export const hubWorkspace: ResourceDef = {
 
 /* ---------- integrations ---------- */
 
-/** IntegrationSystem (catalog schema), alphabetical. */
-const INTEGRATION_SYSTEMS = [
-	{ name: 'Airtable', value: 'AIRTABLE' },
-	{ name: 'Atlassian', value: 'ATLASSIAN' },
-	{ name: 'ClickUp', value: 'CLICKUP' },
-	{ name: 'Composio', value: 'COMPOSIO' },
-	{ name: 'Dutify Project Management', value: 'PM' },
-	{ name: 'Email', value: 'EMAIL' },
-	{ name: 'Google', value: 'GOOGLE' },
-	{ name: 'Jira', value: 'JIRA' },
-	{ name: 'Microsoft Teams', value: 'TEAMS' },
-	{ name: 'Slack', value: 'SLACK' },
-];
+/**
+ * The task systems Hub accepts (catalog: enum ["PM"]). Any other value is refused with
+ * 400 UNSUPPORTED_TASK_SYSTEM, whose message reaches the user.
+ */
+const TASK_SYSTEMS = [{ name: 'Dutify Cloud (Project Management)', value: 'PM' }];
 
 const integrationOperations: OperationDef[] = [
 	{
@@ -258,7 +260,7 @@ const integrationOperations: OperationDef[] = [
 		name: 'Get Preferred',
 		action: 'Get the preferred integration',
 		description:
-			'Get the task system new action items go to by default; preferredIntegration is null when none is set',
+			"Get the workspace's task system: always PM, since Dutify Cloud is where Hub creates new action items",
 		fields: [],
 		run: async (ctx, p) => {
 			const response = await ctx.request({
@@ -273,17 +275,16 @@ const integrationOperations: OperationDef[] = [
 		operation: 'setPreferred',
 		name: 'Set Preferred',
 		action: 'Set the preferred integration',
-		description: 'Set the task system new action items of the workspace go to by default',
+		description: "Set the workspace's task system. Dutify Cloud (PM) is the only one Hub supports",
 		fields: [
 			{
 				displayName: 'Preferred Integration',
 				name: 'preferredIntegration',
 				type: 'options',
-				options: INTEGRATION_SYSTEMS,
+				options: TASK_SYSTEMS,
 				default: 'PM',
 				required: true,
-				description:
-					'The task system. Use Get Many to see which integrations the workspace has connected.',
+				description: 'The task system Hub creates new action items in',
 			},
 		],
 		run: async (ctx, p) => {
@@ -291,7 +292,7 @@ const integrationOperations: OperationDef[] = [
 			await ctx.request({
 				method: 'PUT',
 				path: settingsPath(await workspaceUuid(ctx, p), 'preferred-integration'),
-				// The bare enum value as a JSON string ("JIRA"), not an object.
+				// The bare enum value as a JSON string ("PM"), not an object.
 				body: JSON.stringify(value),
 				contentType: 'application/json',
 			});

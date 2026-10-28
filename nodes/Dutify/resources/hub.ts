@@ -10,8 +10,7 @@ import {
 	splitList,
 	toInstant,
 } from '../../../shared/fieldHelpers';
-import { dutifyErrorOf, encodePath } from '../../../shared/transport';
-import { resolveHubWorkspace } from '../../../shared/workspaces';
+import { encodePath } from '../../../shared/transport';
 import type {
 	BinaryStream,
 	ByteStream,
@@ -102,42 +101,6 @@ function requiredText(value: string, what: string): string {
 	return value.trim();
 }
 
-const isForbidden = (error: unknown) => dutifyErrorOf(error).httpCode === '403';
-
-/**
- * Hub answers `true` to a selection even when the workspace has no connection to the vendor
- * (and even for an unknown call), then drops it. So the vendor's connection is checked first, and
- * a missing one is refused here. A key that may not read integrations (403) skips the check.
- */
-async function requireConnection(
-	ctx: OperationContext,
-	p: ParamReader,
-	vendor: string,
-	systems: string[],
-): Promise<void> {
-	const { id } = await resolveHubWorkspace(async (spec) => await ctx.request(spec), p.workspace);
-	const FORBIDDEN = Symbol('forbidden');
-	const rows = await ctx
-		.request({
-			method: 'GET',
-			path: `${encodePath`/api/v1/workspaces/${id as string}`}/integrations`,
-		})
-		.catch(async (error: unknown) =>
-			isForbidden(error) ? FORBIDDEN : await Promise.reject(error),
-		);
-	if (rows === FORBIDDEN) {
-		return;
-	}
-	const connected = (Array.isArray(rows) ? (rows as IDataObject[]) : []).some(
-		(row) => systems.includes(String(row.integrationSystem)) && row.status === 'CONNECTED',
-	);
-	if (!connected) {
-		throw new ApplicationError(
-			`This workspace has no connected ${vendor} integration, so Dutify would accept the action items and drop them. Connect ${vendor} in Dutify Hub > Integrations first.`,
-		);
-	}
-}
-
 /** The call's UUID, which the selection endpoints take instead of its integer ID. */
 async function callUuid(ctx: OperationContext, p: ParamReader): Promise<string> {
 	const row = (await ctx.request({ method: 'GET', path: callPath(p) })) as {
@@ -151,26 +114,32 @@ async function callUuid(ctx: OperationContext, p: ParamReader): Promise<string> 
 	return uuid;
 }
 
-/** Hub's "send selection": the call's action items become tasks, issues or rows in a vendor. */
-function sendOperation(options: {
+/**
+ * Hub's selection endpoints: they store a vendor destination for the call's action items on the
+ * caller's participation, and create nothing in the vendor (Hub creates new action items in
+ * Dutify Cloud). Hub refuses a bad body (400 INVALID_SELECTION), an unknown call
+ * (404 CALL_NOT_FOUND) and a vendor not connected to the caller's default workspace
+ * (409 INTEGRATION_NOT_CONNECTED), and stores nothing on a refusal. Its message reaches the user.
+ *
+ * The operation values keep their original `sendTo…` names so saved workflows keep working.
+ */
+function selectionOperation(options: {
 	operation: string;
 	vendor: string;
-	systems: string[];
 	segment: string;
 	fields: INodeProperties[];
 	target: (p: ParamReader) => IDataObject;
 }): OperationDef {
-	const { operation, vendor, systems, segment, fields, target } = options;
+	const { operation, vendor, segment, fields, target } = options;
 
 	return {
 		operation,
-		name: `Send to ${vendor}`,
-		action: `Send the action items of a call to ${vendor}`,
-		description: `Create a ${vendor} item for each action item of the call. Dutify does this in the background: accepted: true means the request was accepted, not that the items arrived`,
+		name: `Select ${vendor} Destination`,
+		action: `Select a ${vendor} destination for a call's action items`,
+		description: `Stores a ${vendor} destination for the call's action items on your participation in the call. It creates no ${vendor} item: Dutify creates new action items in Dutify Cloud. accepted: true means the destination was stored. Dutify refuses it when ${vendor} is not connected to your default workspace`,
 		fields: [callField(), ...fields],
 		run: async (ctx, p) => {
 			const body = target(p);
-			await requireConnection(ctx, p, vendor, systems);
 			const response = await ctx.request({
 				method: 'POST',
 				path: `${CALLS}/selection/${segment}`,
@@ -258,16 +227,15 @@ const callOperations: OperationDef[] = [
 		fields: [callField()],
 		build: (p) => ({ method: 'DELETE', path: callPath(p) }),
 	},
-	sendOperation({
+	selectionOperation({
 		operation: 'sendToJira',
 		vendor: 'Jira',
-		systems: ['JIRA', 'ATLASSIAN'],
 		segment: 'jira',
 		fields: [
 			{
 				...idPicker('Jira Site Name or ID', 'jiraCloud', 'getJiraClouds', undefined),
 				description:
-					'The Jira site (cloud) to create the issues in. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+					'The Jira site (cloud) of the destination. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 			{
 				displayName: 'Jira Project Names or IDs',
@@ -277,7 +245,7 @@ const callOperations: OperationDef[] = [
 				default: [],
 				required: true,
 				description:
-					'The projects that get an issue per action item. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+					'The Jira projects of the destination. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 		],
 		target: (p) => ({
@@ -285,10 +253,9 @@ const callOperations: OperationDef[] = [
 			projectIds: nonEmptyList(p.get<unknown>('jiraProjects', []), 'Jira project'),
 		}),
 	}),
-	sendOperation({
+	selectionOperation({
 		operation: 'sendToClickUp',
 		vendor: 'ClickUp',
-		systems: ['CLICKUP'],
 		segment: 'clickup',
 		fields: [
 			{
@@ -299,17 +266,16 @@ const callOperations: OperationDef[] = [
 				required: true,
 				placeholder: 'e.g. 901234567890',
 				description:
-					'The ClickUp list that gets a task per action item: the number after /li/ in the list URL. Dutify does not list ClickUp lists, so it is typed here.',
+					'The ClickUp list of the destination: the number after /li/ in the list URL. Dutify does not list ClickUp lists, so it is typed here.',
 			},
 		],
 		target: (p) => ({
 			selectedListId: requiredText(p.get<string>('clickUpList', ''), 'ClickUp List ID'),
 		}),
 	}),
-	sendOperation({
+	selectionOperation({
 		operation: 'sendToAirtable',
 		vendor: 'Airtable',
-		systems: ['AIRTABLE'],
 		segment: 'airtable',
 		fields: [
 			idPicker('Airtable Base Name or ID', 'airtableBase', 'getAirtableBases', undefined),
@@ -324,7 +290,7 @@ const callOperations: OperationDef[] = [
 				default: [],
 				required: true,
 				description:
-					'The tables that get a row per action item. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+					'The Airtable tables of the destination. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
 			},
 		],
 		target: (p) => ({

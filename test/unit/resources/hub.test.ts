@@ -161,13 +161,7 @@ describe('call', () => {
 describe('call writes', () => {
 	// Catalog (Calls): DELETE /usercall/{id}; POST /usercall/selection/{jira,clickup,airtable}
 	// with the call UUID; PUT/DELETE /usercall/{id}/custom-prompt with {customPrompt}.
-	const WS_UUID = 'c0b647a5-2e8f-4d74-b7b9-8cc2257a07ab';
-	const workspaces = { workspaces: [{ id: WS_UUID, identifier: 'ws-1', name: 'Test' }] };
 	const callRow = { id: 42, call: { id: 7, callUuid: 'call-uuid-1' } };
-	const connected = (system: string) => [
-		{ integrationSystem: 'PM', status: 'CONNECTED' },
-		{ integrationSystem: system, status: 'CONNECTED' },
-	];
 
 	it('delete DELETEs the call by integer ID, picked from the calls', () => {
 		expect(opOf(call, 'delete').build!(reader({ call: '42' }))).toEqual({
@@ -177,15 +171,13 @@ describe('call writes', () => {
 		expect(loaderOf(call, 'delete', 'call')).toBe('getHubCalls');
 	});
 
-	it('sendToJira checks Jira is connected, reads the call UUID, and POSTs cloudId + projectIds', async () => {
-		const ctx = fakeContext([workspaces, connected('JIRA'), callRow, true]);
+	it('sendToJira reads the call UUID and POSTs cloudId + projectIds; Hub checks the connection', async () => {
+		const ctx = fakeContext([callRow, true]);
 		const out = await opOf(call, 'sendToJira').run!(
 			ctx,
 			reader({ call: '42', jiraCloud: 'cloud-1', jiraProjects: ['10001', '10002'] }),
 		);
 		expect(ctx.calls).toEqual([
-			{ method: 'GET', path: '/api/v1/workspaces' },
-			{ method: 'GET', path: `/api/v1/workspaces/${WS_UUID}/integrations` },
 			{ method: 'GET', path: '/api/usercall/42' },
 			{
 				method: 'POST',
@@ -197,9 +189,9 @@ describe('call writes', () => {
 	});
 
 	it('sendToClickUp POSTs the call UUID and the list ID', async () => {
-		const ctx = fakeContext([workspaces, connected('CLICKUP'), callRow, true]);
+		const ctx = fakeContext([callRow, true]);
 		await opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '901' }));
-		expect(ctx.calls[3]).toEqual({
+		expect(ctx.calls[1]).toEqual({
 			method: 'POST',
 			path: '/api/usercall/selection/clickup',
 			body: { callUUID: 'call-uuid-1', selectedListId: '901' },
@@ -207,12 +199,12 @@ describe('call writes', () => {
 	});
 
 	it('sendToAirtable POSTs the call UUID, baseId and tableIds', async () => {
-		const ctx = fakeContext([workspaces, connected('AIRTABLE'), callRow, 'true']);
+		const ctx = fakeContext([callRow, 'true']);
 		const out = await opOf(call, 'sendToAirtable').run!(
 			ctx,
 			reader({ call: '42', airtableBase: 'app1', airtableTables: ['tbl1'] }),
 		);
-		expect(ctx.calls[3]).toEqual({
+		expect(ctx.calls[1]).toEqual({
 			method: 'POST',
 			path: '/api/usercall/selection/airtable',
 			body: { callUUID: 'call-uuid-1', baseId: 'app1', tableIds: ['tbl1'] },
@@ -221,42 +213,38 @@ describe('call writes', () => {
 	});
 
 	it.each([
-		['sendToJira', { jiraCloud: 'c', jiraProjects: ['p'] }, /Jira/],
-		['sendToClickUp', { clickUpList: 'l' }, /ClickUp/],
-		['sendToAirtable', { airtableBase: 'b', airtableTables: ['t'] }, /Airtable/],
+		['sendToJira', { jiraCloud: 'c', jiraProjects: ['p'] }],
+		['sendToClickUp', { clickUpList: 'l' }],
+		['sendToAirtable', { airtableBase: 'b', airtableTables: ['t'] }],
 	])(
-		'%s refuses, before sending, when the integration is not connected (Hub would accept and drop it)',
-		async (operation, params, message) => {
-			const ctx = fakeContext([
-				workspaces,
-				[
-					{ integrationSystem: 'PM', status: 'CONNECTED' },
-					{ integrationSystem: 'JIRA', status: 'REVOKED' },
-					{ integrationSystem: 'CLICKUP', status: 'ERROR' },
-				],
-			]);
-			await expect(
-				opOf(call, operation).run!(ctx, reader({ call: '42', ...params })),
-			).rejects.toThrow(message);
-			expect(ctx.calls.map((c) => c.method)).toEqual(['GET', 'GET']);
+		"%s passes Hub's 409 INTEGRATION_NOT_CONNECTED refusal through unchanged",
+		async (operation, params) => {
+			const refusal = Object.assign(new Error('Cannot select a destination: not connected'), {
+				httpCode: '409',
+			});
+			const ctx = fakeContext([callRow, refusal]);
+			await expect(opOf(call, operation).run!(ctx, reader({ call: '42', ...params }))).rejects.toBe(
+				refusal,
+			);
+			expect(ctx.calls.map((c) => c.method)).toEqual(['GET', 'POST']);
 		},
 	);
 
-	it('a Jira connection listed as ATLASSIAN counts as connected', async () => {
-		const ctx = fakeContext([workspaces, connected('ATLASSIAN'), callRow, true]);
-		await opOf(call, 'sendToJira').run!(
-			ctx,
-			reader({ call: '42', jiraCloud: 'c', jiraProjects: ['p'] }),
-		);
-		expect(ctx.calls[3].path).toBe('/api/usercall/selection/jira');
-	});
-
-	it('sends anyway when the key may not read integrations (403 on the check)', async () => {
-		const forbidden = Object.assign(new Error('Forbidden'), { httpCode: '403' });
-		const ctx = fakeContext([workspaces, forbidden, callRow, true]);
-		await opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '9' }));
-		expect(ctx.calls[3].path).toBe('/api/usercall/selection/clickup');
-	});
+	it.each([
+		['sendToJira', 'Jira'],
+		['sendToClickUp', 'ClickUp'],
+		['sendToAirtable', 'Airtable'],
+	])(
+		'%s says it stores a destination for the action items and creates nothing in the vendor',
+		(operation, vendor) => {
+			const op = opOf(call, operation);
+			expect(op.name).toBe(`Select ${vendor} Destination`);
+			expect(op.action).toBe(`Select a ${vendor} destination for a call's action items`);
+			expect(op.description).toMatch(/stores/i);
+			expect(op.description).toMatch(/Dutify Cloud/);
+			expect(op.description).not.toMatch(/background|arrived/i);
+		},
+	);
 
 	it('refuses an empty project or table list before any request', async () => {
 		for (const [operation, params] of [
@@ -272,11 +260,11 @@ describe('call writes', () => {
 	});
 
 	it('refuses a call without a UUID instead of sending an empty one', async () => {
-		const ctx = fakeContext([workspaces, connected('CLICKUP'), { id: 42, call: {} }]);
+		const ctx = fakeContext([{ id: 42, call: {} }]);
 		await expect(
 			opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '9' })),
 		).rejects.toThrow(/UUID/);
-		expect(ctx.calls).toHaveLength(3);
+		expect(ctx.calls).toHaveLength(1);
 	});
 
 	it('Jira cloud and projects, and Airtable base and tables, are pickers; the ClickUp list is typed', () => {

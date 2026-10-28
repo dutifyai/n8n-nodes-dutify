@@ -29,8 +29,7 @@ The nodes authenticate with a Dutify **personal API key** (it starts with `du_li
      **Read only** key or a key with chosen scopes works only for the operations those scopes
      allow; the rest fail with 403. Meeting webhooks (and the Meeting Processed trigger) need
      `webhooks:read`/`webhooks:write` together with `recordings:read`; Recording → Upload needs
-     `recordings:write`. Send to Jira/ClickUp/Airtable also reads `integrations:read` to check the
-     integration is connected first, because Dutify accepts a send without one and drops it.
+     `recordings:write`.
    - The key never grants more than your own membership: it works in the workspaces and
      products you already belong to.
 2. In n8n, add a **Dutify API** credential and paste the key. Leave **Base URL** at
@@ -52,7 +51,7 @@ A personal key works in every workspace you belong to. Each node has a **Workspa
 | Integration    | PM Webhook (manage webhooks, deliveries, replay)                                                                                                      |
 | Codexum (wiki) | Codexum Page (Markdown in and out), Codexum Space (incl. public wiki settings), Codexum Attachment (binary upload)                                    |
 | Roadmarq       | Feature Request, Bug                                                                                                                                  |
-| Hub            | Call (incl. delete, send action items to Jira/ClickUp/Airtable, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), Lens (ask), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
+| Hub            | Call (incl. delete, select a Jira/ClickUp/Airtable destination for its action items, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), Lens (ask), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
 
 Pickers load names from your workspace (spaces, lists, statuses, members, boards, pages and
 more). Name-based fields such as a task status match names, ignoring case. A misspelled name

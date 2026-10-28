@@ -20,9 +20,10 @@ import {
  * Workspace%20Settings, User%20Resource, Calendar}.
  *
  * - Every setter is a round trip that ends on the value it found, also when the test fails.
- * - Send to Jira/ClickUp/Airtable runs only while the workspace has no such integration: the node
- *   must refuse before anything is sent. With one connected the test skips rather than push real
- *   action items.
+ * - Select Jira/ClickUp/Airtable Destination only stores a destination on the caller's
+ *   participation (it creates no vendor item). It runs only while the workspace has no such
+ *   integration, where Hub refuses with 409 INTEGRATION_NOT_CONNECTED and stores nothing. With one
+ *   connected the test skips rather than overwrite a real destination.
  * - Delete Call deletes only a call this suite uploaded, which spends transcription quota, so it
  *   runs only with DUTIFY_TEST_PAID_OPS=1 and DUTIFY_TEST_AUDIO. Without them only the refusal for
  *   a call that does not exist is checked.
@@ -33,6 +34,13 @@ import {
 
 const MISSING_CALL = '999999999';
 const PROCESSING_TIMEOUT_MS = 15 * 60_000;
+/**
+ * Hub's calendar endpoints (proxied to calendar-events-api) were measured on 2026-10-28 at 0.8 to
+ * 8.2 s per answer, and the slowest end in a 502 at about 10.8 s, while other Hub endpoints answer
+ * in under 1 s. So a calendar test gets 12 s per request it makes, on top of a little slack.
+ */
+const CALENDAR_REQUEST_MS = 12_000;
+const CALENDAR_TEST_MS = (requests: number) => requests * CALENDAR_REQUEST_MS + 3_000;
 
 const hubError = (error: NodeApiError) => `${error.httpCode} ${error.message}`;
 
@@ -112,19 +120,22 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 		expect((await runOne('hubWorkspace', 'getDefault')).workspaceId ?? null).toBe(original);
 	});
 
-	// BACKEND GAP (recorded in the parity report): Hub answers 204 to {workspaceId: null} but keeps
-	// answering the workspace UUID afterwards, so the default cannot be removed. This test states
-	// the expected outcome and is marked failing; it starts passing (and must lose `.fails`) once
-	// Hub clears the default. It ends on the selected workspace, which is the test user's default.
-	it.fails('setDefault None removes the default workspace', async () => {
+	// Catalog (User Resource): PUT {workspaceId: null} resets the choice; the next GET returns
+	// Hub's automatic choice, the workspace the user owns. The test user owns the test workspace.
+	it('setDefault Reset to Automatic brings back the workspace the user owns', async () => {
+		const me = (await run('hubWorkspace', 'listMembers', { returnAll: true })).find(
+			(m) => m.email === live.userEmail,
+		);
+		expect(me?.role).toBe('OWNER');
 		cleanup.add(
-			'default workspace (after None)',
+			'default workspace (after reset)',
 			async () => await runOne('hubWorkspace', 'setDefault', { defaultWorkspace: 'selected' }),
 		);
+
 		expect(await runOne('hubWorkspace', 'setDefault', { defaultWorkspace: 'none' })).toEqual({
-			workspaceId: null,
+			workspaceId: uuid,
 		});
-		expect((await runOne('hubWorkspace', 'getDefault')).workspaceId ?? null).toBeNull();
+		expect((await runOne('hubWorkspace', 'getDefault')).workspaceId).toBe(uuid);
 	});
 
 	/* ---------- Hub Integration ---------- */
@@ -138,34 +149,24 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 		}
 	});
 
-	it('preferred integration: set and read back the current system; Hub refuses another one with its reason', async (ctx) => {
-		const original = (await runOne('hubIntegration', 'getPreferred')).preferredIntegration as
-			| string
-			| null;
-		if (original === null) {
-			ctx.skip('no preferred integration is set, and the node cannot set it back to none');
+	// Catalog (Workspace Settings): GET always answers "PM"; PUT accepts only "PM", and any other
+	// IntegrationSystem value is a 400 {code: UNSUPPORTED_TASK_SYSTEM, message, supported: ["PM"]}.
+	it('preferred integration: PM is set and read back; Hub refuses another system with its code', async () => {
+		expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe('PM');
+		expect(await runOne('hubIntegration', 'setPreferred', { preferredIntegration: 'PM' })).toEqual({
+			preferredIntegration: 'PM',
+		});
+		expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe('PM');
 
-			return;
-		}
-		cleanup.add(
-			'preferred integration',
-			async () =>
-				await runOne('hubIntegration', 'setPreferred', { preferredIntegration: original }),
+		// An expression can still send another value; Hub's own refusal reaches the user.
+		const error = await runError('hubIntegration', 'setPreferred', {
+			preferredIntegration: 'JIRA',
+		});
+		expect(hubError(error)).toBe(
+			'400 Dutify Cloud is the supported task system. The only accepted value is "PM".',
 		);
-
-		expect(
-			await runOne('hubIntegration', 'setPreferred', { preferredIntegration: original }),
-		).toEqual({ preferredIntegration: original });
-		expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe(original);
-
-		// Hub accepts only Dutify Project Management today, although the catalog's enum lists more.
-		if (original === 'PM') {
-			const error = await runError('hubIntegration', 'setPreferred', {
-				preferredIntegration: 'JIRA',
-			});
-			expect(hubError(error)).toBe('400 Dutify Cloud is the supported task system');
-			expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe('PM');
-		}
+		expect(error.description).toContain('Code: UNSUPPORTED_TASK_SYSTEM');
+		expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe('PM');
 	});
 
 	/* ---------- Call: send to a vendor ---------- */
@@ -193,16 +194,20 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 		['sendToClickUp', ['CLICKUP'], 'ClickUp', { clickUpList: '1' }],
 		['sendToAirtable', ['AIRTABLE'], 'Airtable', { airtableBase: 'b', airtableTables: ['t'] }],
 	] as Array<[string, string[], string, IDataObject]>)(
-		'%s refuses before sending while the workspace has no such integration',
+		"%s shows Hub's 409 INTEGRATION_NOT_CONNECTED while the workspace has no such integration",
 		async ([operation, systems, vendor, params], ctx) => {
 			if (await connected(systems)) {
-				ctx.skip(`${vendor} is connected; the test does not push real action items`);
+				ctx.skip(`${vendor} is connected; the test does not overwrite a real destination`);
 
 				return;
 			}
 			const call = await callOrSkip(ctx);
 			const error = await runError('call', operation, { call, ...params });
-			expect(error.message).toContain(`no connected ${vendor} integration`);
+			expect(error.httpCode).toBe('409');
+			expect(error.message).toMatch(
+				new RegExp(`^Cannot select an? ${vendor} destination: it is not connected to workspace`),
+			);
+			expect(error.description).toContain('Code: INTEGRATION_NOT_CONNECTED');
 		},
 	);
 
@@ -300,17 +305,21 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 
 	/* ---------- Calendar Event ---------- */
 
-	it('list returns the events of a range; the pickers load', async () => {
-		const now = Date.now();
-		const events = await run('calendarEvent', 'list', {
-			startDate: new Date(now - 7 * 864e5).toISOString(),
-			endDate: new Date(now + 30 * 864e5).toISOString(),
-			returnAll: true,
-		});
-		expect(Array.isArray(events)).toBe(true);
-		expect(Array.isArray(await loadOptionsOf('getCalendarEvents'))).toBe(true);
-		expect(Array.isArray(await loadOptionsOf('getCalendarSeries'))).toBe(true);
-	});
+	it(
+		'list returns the events of a range; the pickers load',
+		async () => {
+			const now = Date.now();
+			const events = await run('calendarEvent', 'list', {
+				startDate: new Date(now - 7 * 864e5).toISOString(),
+				endDate: new Date(now + 30 * 864e5).toISOString(),
+				returnAll: true,
+			});
+			expect(Array.isArray(events)).toBe(true);
+			expect(Array.isArray(await loadOptionsOf('getCalendarEvents'))).toBe(true);
+			expect(Array.isArray(await loadOptionsOf('getCalendarSeries'))).toBe(true);
+		},
+		CALENDAR_TEST_MS(3),
+	);
 
 	it.each([
 		['setCustomPrompt', { event: `n8n-live-${runId}`, customPrompt: 'x' }, 'Event not found.'],
@@ -327,33 +336,38 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 			const error = await runError('calendarEvent', operation, params);
 			expect(hubError(error)).toBe(`404 ${message}`);
 		},
+		CALENDAR_TEST_MS(1),
 	);
 
-	it('event prompt round trip on a real calendar event, restoring it', async (ctx) => {
-		const options = await loadOptionsOf('getCalendarEvents');
-		if (options.length === 0) {
-			ctx.skip('the test user has no calendar events');
+	it(
+		'event prompt round trip on a real calendar event, restoring it',
+		async (ctx) => {
+			const options = await loadOptionsOf('getCalendarEvents');
+			if (options.length === 0) {
+				ctx.skip('the test user has no calendar events');
 
-			return;
-		}
-		const now = Date.now();
-		const events = await run('calendarEvent', 'list', {
-			startDate: new Date(now - 7 * 864e5).toISOString(),
-			endDate: new Date(now + 60 * 864e5).toISOString(),
-			returnAll: true,
-		});
-		const event = events.find((e) => String(e.eventId ?? e.id) === String(options[0].value));
-		const id = String(options[0].value);
-		const original = (event?.eventCustomPrompt ?? null) as string | null;
-		cleanup.add('event custom prompt', async () =>
-			original === null
-				? await runOne('calendarEvent', 'clearCustomPrompt', { event: id })
-				: await runOne('calendarEvent', 'setCustomPrompt', { event: id, customPrompt: original }),
-		);
-		await runOne('calendarEvent', 'setCustomPrompt', {
-			event: id,
-			customPrompt: `n8n live ${runId}`,
-		});
-		await runOne('calendarEvent', 'clearCustomPrompt', { event: id });
-	});
+				return;
+			}
+			const now = Date.now();
+			const events = await run('calendarEvent', 'list', {
+				startDate: new Date(now - 7 * 864e5).toISOString(),
+				endDate: new Date(now + 60 * 864e5).toISOString(),
+				returnAll: true,
+			});
+			const event = events.find((e) => String(e.eventId ?? e.id) === String(options[0].value));
+			const id = String(options[0].value);
+			const original = (event?.eventCustomPrompt ?? null) as string | null;
+			cleanup.add('event custom prompt', async () =>
+				original === null
+					? await runOne('calendarEvent', 'clearCustomPrompt', { event: id })
+					: await runOne('calendarEvent', 'setCustomPrompt', { event: id, customPrompt: original }),
+			);
+			await runOne('calendarEvent', 'setCustomPrompt', {
+				event: id,
+				customPrompt: `n8n live ${runId}`,
+			});
+			await runOne('calendarEvent', 'clearCustomPrompt', { event: id });
+		},
+		CALENDAR_TEST_MS(4),
+	);
 });
