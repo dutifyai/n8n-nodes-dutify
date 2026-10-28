@@ -1,6 +1,6 @@
 {
 	"name": "@dutifyai/n8n-nodes-dutify",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "n8n community nodes for Dutify: project management, Codexum wiki, Roadmarq feature requests and Hub meeting recordings, with a trigger for PM events and processed meetings.",
 	"license": "MIT",
 	"publishConfig": {
