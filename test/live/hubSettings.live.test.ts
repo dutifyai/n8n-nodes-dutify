@@ -25,7 +25,7 @@ import {
  *   a call that does not exist is checked.
  * - The test user's calendar is empty, so the prompt operations on a calendar event or series are
  *   checked by Hub's 404 for an event or series that does not exist; a real round trip runs when
- *   the calendar has an event.
+ *   the calendar has an event, and a series round trip when it has a recurring one.
  */
 
 const MISSING_CALL = '999999999';
@@ -321,5 +321,51 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 			await runOne('calendarEvent', 'clearCustomPrompt', { event: id });
 		},
 		CALENDAR_TEST_MS(4),
+	);
+
+	// Catalog (Calendar): each listed event carries its seriesMasterId and any seriesCustomPrompt;
+	// PUT /calendar/series/{seriesMasterId}/custom-prompt sets it for every occurrence, DELETE
+	// removes it.
+	it(
+		'series prompt round trip on a real recurring event: set, read back, clear, restoring it',
+		async (ctx) => {
+			const now = Date.now();
+			const window = async () =>
+				await run('calendarEvent', 'list', {
+					startDate: new Date(now - 7 * 864e5).toISOString(),
+					endDate: new Date(now + 60 * 864e5).toISOString(),
+					returnAll: true,
+				});
+			const recurring = (await window()).find((e) => e.seriesMasterId);
+			if (!recurring) {
+				ctx.skip('the test user has no recurring calendar event in the last 7 or next 60 days');
+
+				return;
+			}
+			const series = String(recurring.seriesMasterId);
+			const promptOfSeries = async () =>
+				(await window())
+					.filter((e) => String(e.seriesMasterId) === series)
+					.map((e) => (e.seriesCustomPrompt ?? '') as string);
+			const original = (recurring.seriesCustomPrompt ?? null) as string | null;
+			cleanup.add('series custom prompt', async () =>
+				original
+					? await runOne('calendarEvent', 'setSeriesCustomPrompt', {
+							series,
+							customPrompt: original,
+						})
+					: await runOne('calendarEvent', 'clearSeriesCustomPrompt', { series }),
+			);
+
+			const prompt = `n8n live series ${runId}`;
+			await runOne('calendarEvent', 'setSeriesCustomPrompt', { series, customPrompt: prompt });
+			const set = await promptOfSeries();
+			expect(set.length).toBeGreaterThan(0);
+			expect(new Set(set)).toEqual(new Set([prompt]));
+
+			await runOne('calendarEvent', 'clearSeriesCustomPrompt', { series });
+			expect(new Set(await promptOfSeries())).toEqual(new Set(['']));
+		},
+		CALENDAR_TEST_MS(6),
 	);
 });
