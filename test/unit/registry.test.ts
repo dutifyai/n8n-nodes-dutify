@@ -341,6 +341,34 @@ describe('executeOperation', () => {
 	});
 });
 
+describe('the Dutify node', () => {
+	it('executes a registered operation through its own execute()', async () => {
+		const { Dutify } = await import('../../nodes/Dutify/Dutify.node');
+		const { self, httpRequestWithAuthentication } = stubThis({
+			items: [{ resource: 'call', operation: 'get', workspace: 'ws-1', call: '42' }],
+			responses: [{ id: 42, call: { name: 'Standup' } }],
+		});
+		const [out] = await new Dutify().execute.call(self as never);
+		expect(out).toEqual([{ json: { id: 42, call: { name: 'Standup' } }, pairedItem: { item: 0 } }]);
+		const [credential, options] = httpRequestWithAuthentication.mock.calls[0] as unknown as [
+			string,
+			{ method: string; url: string; headers: IDataObject },
+		];
+		expect(credential).toBe('dutifyApi');
+		expect(options.method).toBe('GET');
+		expect(options.url).toBe('https://dutify.ai/api/usercall/42');
+		expect(options.headers['X-Dutify-Workspace']).toBe('ws-1');
+	});
+
+	it('serves the pickers and the workspace search from the loaders', async () => {
+		const { Dutify } = await import('../../nodes/Dutify/Dutify.node');
+		const { listSearch, loadOptions } = await import('../../nodes/Dutify/loaders');
+		const node = new Dutify();
+		expect(node.methods.loadOptions).toBe(loadOptions);
+		expect(node.methods.listSearch).toBe(listSearch);
+	});
+});
+
 describe('field descriptions', () => {
 	// Production task IDs are 10-character strings (e.g. B1GYq7Sn83), not tsk_... as the catalog
 	// examples suggest, so no description may promise a tsk_ prefix.
