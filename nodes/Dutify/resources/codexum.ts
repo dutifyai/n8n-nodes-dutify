@@ -10,12 +10,26 @@ import {
 	text,
 } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
-import type { OperationDef, ParamReader, ResourceDef } from '../../../shared/types';
+import type {
+	OperationDef,
+	PaginationStyle,
+	ParamReader,
+	ResourceDef,
+} from '../../../shared/types';
 
 /* ---------- shared ---------- */
 
-/** The page list endpoint returns at most 500 items and has no paging. */
-const PAGE_LIST_MAX = 500;
+/**
+ * The page list returns at most 500 pages a request. `offset` skips pages, and `X-Next-Offset`
+ * names the next offset while more pages remain at that level (absent on the last request).
+ */
+const PAGE_LIST_PAGING: PaginationStyle = {
+	kind: 'offset',
+	offsetParam: 'offset',
+	limitParam: 'limit',
+	nextOffsetHeader: 'X-Next-Offset',
+	maxPageSize: 500,
+};
 
 export const spaceField = (): INodeProperties =>
 	idPicker('Space Name or ID', 'space', 'getWikiSpaces', undefined);
@@ -261,7 +275,8 @@ const pageOperations: OperationDef[] = [
 		build: (p) => ({
 			method: 'GET',
 			path: litePages(p),
-			qs: { limit: PAGE_LIST_MAX, ...pick({ parent: p.get<string>('parent', '') }, ['parent']) },
+			qs: pick({ parent: p.get<string>('parent', '') }, ['parent']),
+			paginate: PAGE_LIST_PAGING,
 		}),
 	},
 	{

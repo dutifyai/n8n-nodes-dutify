@@ -1,7 +1,13 @@
+import type { IDataObject } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { codexumPage } from '../../nodes/Dutify/resources/codexum';
+import { requestAllPages } from '../../shared/pagination';
+import type { PaginationStyle, RequestSpec } from '../../shared/types';
 import {
 	cleanupStack,
+	live,
 	liveDescribe,
+	rawRequest,
 	loadOptionsOf,
 	run,
 	runError,
@@ -155,6 +161,69 @@ liveDescribe('Codexum space and page — live', () => {
 			options: { spaceKey: key, limit: 3 },
 		});
 		expect(Array.isArray(retrieved)).toBe(true);
+	});
+
+	/*
+	 * Codexum PR #44: the page list takes `offset`, and answers X-Total-Count and, while more pages
+	 * remain, X-Next-Offset. 500 pages are too many to create here, so the walk is checked with a
+	 * page size of 2 over three children.
+	 */
+	it('page list pages by offset: headers, Limit, Return All, and the X-Next-Offset walk', async () => {
+		const parent = String(
+			(await runOne('codexumPage', 'create', { space: key, title: `Paging ${runId}` })).slug,
+		);
+		const children: string[] = [];
+		for (const n of [1, 2, 3]) {
+			const created = await runOne('codexumPage', 'create', {
+				space: key,
+				title: `Paging child ${n} ${runId}`,
+				parent,
+			});
+			children.push(String(created.slug));
+		}
+		const path = `/api/wiki/v1/workspaces/${encodeURIComponent(live.workspace)}/wiki/spaces/${encodeURIComponent(key)}/pages/lite`;
+
+		const first = (await rawRequest({
+			method: 'GET',
+			path,
+			qs: { parent, limit: 2 },
+			fullResponse: true,
+		})) as { body: IDataObject[]; headers: Record<string, string> };
+		expect(first.body).toHaveLength(2);
+		expect(first.headers['x-total-count']).toBe('3');
+		expect(first.headers['x-next-offset']).toBe('2');
+		const last = (await rawRequest({
+			method: 'GET',
+			path,
+			qs: { parent, limit: 2, offset: 2 },
+			fullResponse: true,
+		})) as { body: IDataObject[]; headers: Record<string, string> };
+		expect(last.body).toHaveLength(1);
+		expect(last.headers['x-next-offset']).toBeUndefined();
+
+		expect(await run('codexumPage', 'list', { space: key, parent, limit: 2 })).toHaveLength(2);
+		const all = await run('codexumPage', 'list', { space: key, parent, returnAll: true });
+		expect(all.map((p) => p.slug).sort()).toEqual([...children].sort());
+
+		// The node's own list spec, walked 2 at a time: it follows X-Next-Offset until it is gone.
+		const params: Record<string, string> = { space: key, parent };
+		const spec = codexumPage.operations
+			.find((o) => o.operation === 'list')!
+			.build!({ workspace: live.workspace, get: <T>(name: string) => params[name] as T });
+		const sent: RequestSpec[] = [];
+		const walked = await requestAllPages(
+			async (s) => {
+				sent.push(s);
+
+				return await rawRequest(s);
+			},
+			{ ...spec, paginate: { ...(spec.paginate as PaginationStyle), maxPageSize: 2 } },
+		);
+		expect(walked.map((p) => p.slug).sort()).toEqual([...children].sort());
+		expect(sent.map((s) => s.qs)).toEqual([
+			{ parent, limit: 2 },
+			{ parent, limit: 2, offset: 2 },
+		]);
 	});
 
 	it('page delete archives it; permanent delete removes it (404)', async () => {

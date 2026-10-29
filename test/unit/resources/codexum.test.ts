@@ -125,19 +125,51 @@ describe('page search and retrieve', () => {
 	});
 });
 
+/*
+ * Codexum PR #44: the page list takes `offset` next to `limit` (max 500), and answers
+ * `X-Next-Offset` while more pages remain at that level.
+ */
 describe('page list', () => {
-	it('lists root pages at the server maximum of 500, not paginated', () => {
+	const OFFSET_PAGING = {
+		kind: 'offset',
+		offsetParam: 'offset',
+		limitParam: 'limit',
+		nextOffsetHeader: 'X-Next-Offset',
+		maxPageSize: 500,
+	};
+
+	it('lists root pages with offset paging, 500 at a time', () => {
 		const spec = buildPage('list', { space: 'DOCS', parent: '' });
-		expect(spec).toEqual({ method: 'GET', path: LITE, qs: { limit: 500 } });
-		expect(spec.paginate).toBeUndefined();
+		expect(spec).toEqual({ method: 'GET', path: LITE, qs: {}, paginate: OFFSET_PAGING });
 		expect(page('list').list).toBe(true);
 	});
 
 	it('lists the children of a parent slug', () => {
 		expect(buildPage('list', { space: 'DOCS', parent: 'handbook' }).qs).toEqual({
-			limit: 500,
 			parent: 'handbook',
 		});
+	});
+
+	it('Return All follows X-Next-Offset past 500 pages, until it is gone', async () => {
+		const spec = buildPage('list', { space: 'DOCS', parent: '' });
+		const rows = (from: number, n: number) =>
+			Array.from({ length: n }, (_, i) => ({ slug: `p-${from + i}` }));
+		const ctx = fakeContext([
+			{ body: rows(0, 500), headers: { 'x-next-offset': '500', 'x-total-count': '600' } },
+			{ body: rows(500, 100), headers: { 'x-total-count': '600' } },
+		]);
+		const all = await ctx.requestAll(spec);
+		expect(all).toHaveLength(600);
+		expect(ctx.calls.map((c) => c.qs)).toEqual([{ limit: 500 }, { limit: 500, offset: 500 }]);
+	});
+
+	it('Limit asks for no more pages than it returns', async () => {
+		const spec = buildPage('list', { space: 'DOCS', parent: 'handbook' });
+		const ctx = fakeContext([
+			{ body: [{ slug: 'a' }, { slug: 'b' }], headers: { 'x-next-offset': '2' } },
+		]);
+		expect(await ctx.requestAll(spec, 2)).toEqual([{ slug: 'a' }, { slug: 'b' }]);
+		expect(ctx.calls.map((c) => c.qs)).toEqual([{ parent: 'handbook', limit: 2 }]);
 	});
 });
 
