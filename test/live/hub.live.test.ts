@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import type { TestContext } from 'vitest';
 import { sleep } from 'n8n-workflow';
 import type { IDataObject } from 'n8n-workflow';
+import { dutifyErrorOf } from '../../shared/transport';
 import {
 	cleanupStack,
 	live,
@@ -18,14 +19,17 @@ import {
 } from './harness';
 
 /*
- * Hub calls, recordings and Lens against ONE reusable test recording: a ~27 s two-speaker standup
+ * Hub calls, recordings and the AI Coworker against ONE reusable test recording: a ~27 s two-speaker standup
  * ("Atlas launch", two action items) in the test workspace. The suite reuses the workspace's
  * recording; only when there is none does it upload `DUTIFY_TEST_AUDIO` (from .dutify-test.env)
  * through Recording > Upload, which also checks that operation, and waits until it is processed.
  * Without a recording and without that file, the suite skips with the reason.
  *
- * The operations that spend AI credits (Regenerate Summary, Reprocess, Lens Ask) run only with
- * DUTIFY_TEST_PAID_OPS=1 in .dutify-test.env.
+ * The operations that spend AI credits (Regenerate Summary, Reprocess, AI Coworker Ask) run only
+ * with DUTIFY_TEST_PAID_OPS=1 in .dutify-test.env.
+ *
+ * The error codes, the progress of 100, the preview 404, the signed links of an uploaded video and
+ * AI Coworker > Get Usage are Hub PR #393 (chatgpttests/dutify-backend-java).
  */
 
 const MARKER = 'Atlas';
@@ -89,7 +93,7 @@ async function uploadRecording(audio: Buffer): Promise<TestRecording> {
 let target: TestRecording | undefined;
 let skipReason = '';
 
-liveDescribe('Hub call, recording and Lens — live', () => {
+liveDescribe('Hub call, recording and AI Coworker — live', () => {
 	beforeAll(async () => {
 		target = await findRecording();
 		if (!target) {
@@ -136,10 +140,10 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 			const status = await waitUntilProcessed(t.recording);
 			expect(status).toMatchObject({ id: Number(t.recording), processed: true });
 			expect(String(status.userCallId)).toBe(t.call);
-			// A processed upload reports 95, not 100 (Hub's progress for a finished upload).
+			// A processed recording reports 100, in both progress answers.
+			expect(Number(status.progress)).toBe(100);
 			const progress = await runOne('recording', 'getProgress', { recording: t.recording });
-			expect(Number(progress.value)).toBeGreaterThanOrEqual(90);
-			expect(Number(progress.value)).toBeLessThanOrEqual(100);
+			expect(Number(progress.value)).toBe(100);
 		},
 		PROCESSING_TIMEOUT_MS,
 	)();
@@ -174,27 +178,70 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 	})();
 
 	// The test recording is an uploaded audio file: Hub signs its media and audio URLs (Hub #372).
-	// An audio file has no preview image, so the preview URL answers 400.
+	// An audio file has no preview image, so the preview URL answers 404 NO_PREVIEW.
 	withRecording(
-		'media and audio URLs of an uploaded audio recording are signed https URLs',
+		'media and audio URLs of an uploaded audio recording are signed https URLs; preview is 404 NO_PREVIEW',
 		async (t) => {
 			for (const operation of ['getMediaUrl', 'getAudioUrl']) {
 				const result = await runOne('recording', operation, { recording: t.recording });
 				expect(JSON.stringify(result)).toMatch(/"https:\/\/[^"]+/);
 			}
 			const error = await runError('recording', 'getPreviewUrl', { recording: t.recording });
-			expect(error.httpCode).toBe('400');
-			expect(error.message).toBe('Recording does not have a preview image');
+			expect(error.httpCode).toBe('404');
+			expect(error.message).toBe('Recording has no preview image');
+			expect(dutifyErrorOf(error).code).toBe('NO_PREVIEW');
+			expect(error.description).toBe('Code: NO_PREVIEW');
 		},
 	)();
 
-	it('get of an unknown call and the status of an unknown recording answer 404', async () => {
+	it('an unknown call and an unknown recording answer 404 NOT_FOUND with a message', async () => {
 		const call = await runError('call', 'get', { call: '999999999' });
 		expect(call.httpCode).toBe('404');
-		const recording = await runError('recording', 'getProcessingStatus', {
+		expect(dutifyErrorOf(call).code).toBe('NOT_FOUND');
+		expect(call.message).toMatch(/not found/i);
+		for (const operation of ['getProcessingStatus', 'getProgress', 'getMediaUrl']) {
+			const recording = await runError('recording', operation, { recording: '999999999' });
+			expect(recording.httpCode).toBe('404');
+			expect(recording.message).toBe('Recording not found');
+			expect(dutifyErrorOf(recording).code).toBe('NOT_FOUND');
+		}
+	});
+
+	// Reprocess queues the run (schedule-reprocess); a recording that does not exist is refused
+	// before anything is queued, so this spends nothing.
+	it('reprocess of an unknown recording answers 404 NOT_FOUND', async () => {
+		const error = await runError('recording', 'reprocess', {
 			recording: '999999999',
+			additionalFields: {},
 		});
-		expect(recording.httpCode).toBe('404');
+		expect(error.httpCode).toBe('404');
+		expect(dutifyErrorOf(error).code).toBe('NOT_FOUND');
+	});
+
+	it('AI Coworker > Get Usage reads the workspace balance', async () => {
+		const usage = await runOne('lens', 'getUsage');
+		for (const key of ['allowanceRemaining', 'purchasedBalance', 'total', 'monthlyAllowance']) {
+			expect(Number.isInteger(usage[key])).toBe(true);
+			expect(Number(usage[key])).toBeGreaterThanOrEqual(0);
+		}
+		expect(usage.total).toBe(Number(usage.allowanceRemaining) + Number(usage.purchasedBalance));
+		expect(Number(usage.allowanceRemaining)).toBeLessThanOrEqual(Number(usage.monthlyAllowance));
+		expect(Number.isNaN(Date.parse(String(usage.cycleResetsAt)))).toBe(false);
+	});
+
+	// Asking with nothing left spends nothing, so it runs whenever the balance is 0.
+	it('AI Coworker > Ask with no usage left answers 402 AI_COWORKER_USAGE_EXHAUSTED', async (ctx) => {
+		const usage = await runOne('lens', 'getUsage');
+		if (Number(usage.total) > 0) {
+			ctx.skip(`the workspace still has ${String(usage.total)} AI Coworker questions left`);
+
+			return;
+		}
+		const error = await runError('lens', 'ask', { message: 'Anything new?', additionalFields: {} });
+		expect(error.httpCode).toBe('402');
+		expect(dutifyErrorOf(error).code).toBe('AI_COWORKER_USAGE_EXHAUSTED');
+		expect(error.message).toMatch(/^This workspace has used up its AI Coworker usage\./);
+		expect(error.message).not.toMatch(/lens/i);
 	});
 
 	/* ---------- paid: AI credits, only with DUTIFY_TEST_PAID_OPS=1 ---------- */
@@ -202,14 +249,21 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 	const paid = (name: string, body: (t: TestRecording) => Promise<void>) =>
 		withRecording(name, body, PROCESSING_TIMEOUT_MS, true)();
 
-	paid('reprocess re-runs the pipeline and the recording ends processed again', async (t) => {
-		const [result] = await run('recording', 'reprocess', {
-			recording: t.recording,
-			additionalFields: {},
-		});
-		expect(result).toBeTruthy();
-		await waitUntilProcessed(t.recording);
-	});
+	paid(
+		'reprocess queues the pipeline at once and the recording ends processed again',
+		async (t) => {
+			const started = Date.now();
+			const [result] = await run('recording', 'reprocess', {
+				recording: t.recording,
+				additionalFields: {},
+			});
+			expect(result).toEqual({ recording: t.recording, scheduled: true });
+			// Queued, not run while the request waits.
+			expect(Date.now() - started).toBeLessThan(20_000);
+			const status = await waitUntilProcessed(t.recording);
+			expect(Number(status.progress)).toBe(100);
+		},
+	);
 
 	paid('regenerateSummary returns a new summary without saving it', async (t) => {
 		const [result] = await run('recording', 'regenerateSummary', {
@@ -219,10 +273,10 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 		expect(JSON.stringify(result)).toMatch(/Atlas|login|checklist/i);
 	});
 
-	// The FREE test workspace has a small Lens credit allowance; once it is spent, Hub answers
-	// "This workspace is out of Lens credits", and the test skips with that reason.
+	// The FREE test workspace has a small AI Coworker allowance; once it is spent, Hub answers
+	// 402 AI_COWORKER_USAGE_EXHAUSTED, and the test skips with that reason.
 	withRecording(
-		'Lens answers a question about the standup from the recording',
+		'AI Coworker answers a question about the standup from the recording',
 		async (_t, ctx) => {
 			let answer: IDataObject | undefined;
 			let failure: Error | undefined;
@@ -234,7 +288,7 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 			} catch (error) {
 				failure = error as Error;
 			}
-			if (failure && /out of Lens credits/i.test(failure.message)) {
+			if (failure && dutifyErrorOf(failure).code === 'AI_COWORKER_USAGE_EXHAUSTED') {
 				ctx.skip(failure.message);
 
 				return;
@@ -243,7 +297,7 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 			// The recording's two action items: Sarah ships the mobile login fix by Wednesday, Alex
 			// sends the launch checklist by Friday. A real answer names both, from the recording.
 			const text = String(answer?.answer ?? '');
-			await ctx.annotate(`Lens answer: ${text}`);
+			await ctx.annotate(`AI Coworker answer: ${text}`);
 			expect(text.length).toBeGreaterThan(40);
 			expect(text).toMatch(/login/i);
 			expect(text).toMatch(/checklist/i);
@@ -254,7 +308,8 @@ liveDescribe('Hub call, recording and Lens — live', () => {
 });
 
 /*
- * An uploaded video has a preview thumbnail, which the audio test recording lacks. Uploading and
+ * An uploaded video has a preview thumbnail, which the audio test recording lacks, and Hub signs
+ * its file for Get Media URL and Get Audio URL (Hub PR #393). Uploading and
  * processing one spends transcription minutes and AI, so this runs only with
  * DUTIFY_TEST_PAID_OPS=1 and a DUTIFY_TEST_VIDEO file (a short mp4 of the same standup). The
  * call is hard-deleted afterwards, so the audio recording stays the workspace's newest call.
@@ -264,7 +319,7 @@ liveDescribe('Hub recording preview of an uploaded video — live (paid)', () =>
 	afterAll(async () => await cleanup.run(), 120_000);
 
 	it(
-		'getPreviewUrl of a processed video upload is a signed URL of an image; download gives the image',
+		'a processed video upload: preview is an image, media and audio URLs sign the video',
 		async (ctx) => {
 			const video = readVideoFile();
 			if (!live.paidOps || !video) {
@@ -302,9 +357,15 @@ liveDescribe('Hub recording preview of an uploaded video — live (paid)', () =>
 			expect(String(downloaded.binary?.data.mimeType)).toMatch(/^image\//);
 			expect(Number(downloaded.binary?.data.fileSize)).toBeGreaterThan(0);
 
-			// The catalog: an uploaded video is not served as media (400).
-			const media = await runError('recording', 'getMediaUrl', { recording });
-			expect(media.httpCode).toBe('400');
+			// An uploaded video has no separate audio track: both links sign the video file.
+			for (const operation of ['getMediaUrl', 'getAudioUrl']) {
+				const signed = await runOne('recording', operation, { recording });
+				expect(String(signed.url)).toMatch(/^https:\/\//);
+				const head = await fetch(String(signed.url), { headers: { Range: 'bytes=0-0' } });
+				expect([200, 206]).toContain(head.status);
+				expect(String(head.headers.get('content-type'))).toMatch(/^video\//);
+				await head.body?.cancel();
+			}
 
 			await rawRequest({ method: 'DELETE', path: `/api/usercall/${encodeURIComponent(call)}` });
 			const gone = await runError('call', 'get', { call });

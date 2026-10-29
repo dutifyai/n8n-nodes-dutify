@@ -59,7 +59,7 @@ describe('registration', () => {
 			'reprocess',
 			'upload',
 		]);
-		expect(lens.operations.map((o) => o.operation)).toEqual(['ask']);
+		expect(lens.operations.map((o) => o.operation)).toEqual(['ask', 'getUsage']);
 	});
 });
 
@@ -452,29 +452,51 @@ describe('recording', () => {
 		expect(field(recording, 'regenerateSummary', 'saveToDb')?.default).toBe(true);
 	});
 
-	it('reprocess POSTs an empty body by default', () => {
-		expect(
-			opOf(recording, 'reprocess').build!(reader({ recording: '7', additionalFields: {} })),
-		).toEqual({ method: 'POST', path: `${REC}/reprocess`, body: {} });
+	/*
+	 * Reprocess queues the run (schedule-reprocess) and returns at once: the immediate /reprocess
+	 * runs the whole pipeline while the request waits, which can outlast n8n's HTTP timeout.
+	 * schedule-reprocess answers 200 with no body (Hub PR #393).
+	 */
+	it('reprocess POSTs schedule-reprocess with an empty body by default and reports it queued', async () => {
+		const ctx = fakeContext(['']);
+		const out = await opOf(recording, 'reprocess').run!(
+			ctx,
+			reader({ recording: '7', additionalFields: {} }),
+		);
+		expect(ctx.calls).toEqual([{ method: 'POST', path: `${REC}/schedule-reprocess`, body: {} }]);
+		expect(out).toEqual([{ json: { recording: '7', scheduled: true } }]);
 	});
 
-	it('reprocess sends only the options that were set', () => {
-		expect(
-			opOf(recording, 'reprocess').build!(
-				reader({
-					recording: '7',
-					additionalFields: {
-						callProcessingMethod: 'GPT_6_LUNA',
-						callReasoningEffort: 'HIGH',
-						applyCorrections: true,
-					},
-				}),
-			).body,
-		).toEqual({
+	it('reprocess sends only the options that were set', async () => {
+		const ctx = fakeContext([undefined]);
+		await opOf(recording, 'reprocess').run!(
+			ctx,
+			reader({
+				recording: '7',
+				additionalFields: {
+					callProcessingMethod: 'GPT_6_LUNA',
+					callReasoningEffort: 'HIGH',
+					applyCorrections: false,
+				},
+			}),
+		);
+		expect(ctx.calls[0].body).toEqual({
 			callProcessingMethod: 'GPT_6_LUNA',
 			callReasoningEffort: 'HIGH',
-			isCallApplyCorrections: true,
+			isCallApplyCorrections: false,
 		});
+	});
+
+	it("reprocess passes Hub's refusal on (404 NOT_FOUND, 402, 409)", async () => {
+		const refusal = Object.assign(new Error('Recording not found'), { httpCode: '404' });
+		const ctx = fakeContext([refusal]);
+		await expect(
+			opOf(recording, 'reprocess').run!(ctx, reader({ recording: '7', additionalFields: {} })),
+		).rejects.toBe(refusal);
+	});
+
+	it('reprocess says it returns at once and how to follow the run', () => {
+		expect(opOf(recording, 'reprocess').description).toMatch(/Get Processing Status/);
 	});
 
 	it('picks the recording from getHubRecordings in every operation on a recording', () => {
@@ -541,5 +563,44 @@ describe('lens', () => {
 
 	it('requires the message', () => {
 		expect(field(lens, 'ask', 'message')?.required).toBe(true);
+	});
+});
+
+/*
+ * AI Coworker usage (Hub PR #393, operationId getAiCoworkerUsage): GET
+ * /api/v1/lens/credits/by-workspace/{workspace UUID}, scope lens:chat, only the key's own
+ * workspace. 200 {allowanceRemaining, purchasedBalance, total, monthlyAllowance, cycleResetsAt}.
+ */
+describe('AI Coworker usage', () => {
+	const usage = opOf(lens, 'getUsage');
+	const UUID = '3f1c2a9e-1b2c-4d5e-8f90-123456789abc';
+	const balance = {
+		allowanceRemaining: 20,
+		purchasedBalance: 5,
+		total: 25,
+		monthlyAllowance: 25,
+		cycleResetsAt: '2026-11-01T00:00:00Z',
+	};
+
+	it("finds the workspace's Hub UUID, then reads its usage balance", async () => {
+		const ctx = fakeContext([[{ id: UUID, identifier: 'ws-1', name: 'Team' }], balance]);
+		const out = await usage.run!(ctx, reader({}, 'ws-1'));
+		expect(ctx.calls).toEqual([
+			{ method: 'GET', path: '/api/v1/workspaces' },
+			{ method: 'GET', path: `/api/v1/lens/credits/by-workspace/${UUID}` },
+		]);
+		expect(out).toEqual([{ json: balance }]);
+	});
+
+	it('refuses a workspace Hub does not list for the key, before reading any balance', async () => {
+		const ctx = fakeContext([[{ id: UUID, identifier: 'other' }]]);
+		await expect(usage.run!(ctx, reader({}, 'ws-1'))).rejects.toThrow(/does not list/);
+		expect(ctx.calls).toHaveLength(1);
+	});
+
+	it('has no fields and is named for the AI Coworker, not Lens', () => {
+		expect(usage.fields).toEqual([]);
+		expect(`${usage.name} ${usage.action} ${usage.description}`).not.toMatch(/lens/i);
+		expect(usage.description).toMatch(/AI_COWORKER_USAGE_EXHAUSTED/);
 	});
 });

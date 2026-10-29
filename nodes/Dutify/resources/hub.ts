@@ -11,6 +11,7 @@ import {
 	toInstant,
 } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
+import { resolveHubWorkspace } from '../../../shared/workspaces';
 import type {
 	BinaryStream,
 	ByteStream,
@@ -22,9 +23,12 @@ import type {
 } from '../../../shared/types';
 
 /*
- * Hub (the meeting-recording product). Contracts: https://dutify.ai/api/v1/api-catalog/{Calls,
- * Recordings,Lens}; the catalog has no response schemas or examples for these, so
+ * Dutify Hub (meetings and recordings). Contracts: https://dutify.ai/api/v1/api-catalog/{Calls,
+ * Recordings,AI%20Coworker}; the catalog has no response schemas or examples for these, so
  * response shapes come from the Hub backend source (origin/master).
+ *
+ * Hub answers errors as `{message, errorCode}` (the transport shows both), e.g. 404 NOT_FOUND for
+ * a recording the caller may not see, 404 NO_PREVIEW, 409 RECORDING_STILL_PROCESSING.
  *
  * Every Hub resource is workspaceScoped: a personal API key must name its workspace in
  * X-Dutify-Workspace (without it Hub answers 400 WORKSPACE_REQUIRED), which the registry sends.
@@ -511,7 +515,7 @@ const recordingOperations: OperationDef[] = [
 		'media',
 		'Get Media URL',
 		'Get a signed URL for the recording',
-		'Get a short-lived signed URL for the full recording (video and audio), optionally downloading it',
+		'Get a short-lived signed URL for the recording file (audio or video), optionally downloading it',
 	),
 	urlOperation(
 		'getAudioUrl',
@@ -519,7 +523,7 @@ const recordingOperations: OperationDef[] = [
 		'audio',
 		'Get Audio URL',
 		'Get a signed URL for the recording audio',
-		"Get a short-lived signed URL for the recording's audio, optionally downloading it",
+		"Get a short-lived signed URL for the recording's audio, optionally downloading it. An uploaded video has no separate audio track, so this is the video file",
 	),
 	urlOperation(
 		'getPreviewUrl',
@@ -527,7 +531,7 @@ const recordingOperations: OperationDef[] = [
 		'preview',
 		'Get Preview URL',
 		'Get a signed URL for the recording preview',
-		"Get a short-lived signed URL for the recording's preview thumbnail, optionally downloading it",
+		"Get a short-lived signed URL for the recording's preview thumbnail, optionally downloading it. Only a video has one: for an audio recording Dutify answers 404 NO_PREVIEW",
 	),
 	{
 		operation: 'getProcessingStatus',
@@ -577,12 +581,18 @@ const recordingOperations: OperationDef[] = [
 		name: 'Reprocess',
 		action: 'Reprocess a recording',
 		description:
-			'Re-run the whole pipeline: transcription, summary, key points and action items. Slow and expensive; prefer Regenerate Summary.',
+			'Queue a re-run of the whole pipeline: transcription, summary, key points and action items. It returns at once; follow the run with Get Processing Status or the Meeting Processed trigger. Slow and expensive; prefer Regenerate Summary.',
 		fields: [
 			recordingField(),
 			collection('Additional Fields', 'additionalFields', reprocessOptions),
 		],
-		build: (p) => {
+		/*
+		 * schedule-reprocess, not /reprocess: the immediate route runs the pipeline while the
+		 * request waits, which can outlast n8n's HTTP timeout and leaves the workflow without an
+		 * answer. Both take the same body and refuse the same way (404 NOT_FOUND, 402
+		 * TRANSCRIPTION_QUOTA_EXCEEDED, 409 WORKFLOW_IN_PROGRESS or RECORDING_MEDIA_MISSING).
+		 */
+		run: async (ctx, p) => {
 			const { callProcessingMethod, callReasoningEffort, applyCorrections } = p.get<IDataObject>(
 				'additionalFields',
 				{},
@@ -597,8 +607,9 @@ const recordingOperations: OperationDef[] = [
 			if (applyCorrections !== undefined) {
 				body.isCallApplyCorrections = applyCorrections;
 			}
+			await ctx.request({ method: 'POST', path: `${recordingPath(p)}/schedule-reprocess`, body });
 
-			return { method: 'POST', path: `${recordingPath(p)}/reprocess`, body };
+			return [{ json: { recording: p.get<string>('recording'), scheduled: true } }];
 		},
 	},
 ];
@@ -865,7 +876,7 @@ export const recording: ResourceDef = {
 	operations: [...recordingOperations, uploadOperation],
 };
 
-/* ---------- Lens ---------- */
+/* ---------- AI Coworker (Hub's API calls it lens) ---------- */
 
 /** The backend rejects a longer history (`@Size(max = 20)`). */
 const MAX_LENS_HISTORY = 20;
@@ -936,9 +947,35 @@ const lensOperations: OperationDef[] = [
 			return typeof response === 'string' ? [{ json: { answer: response } }] : oneItem(response);
 		},
 	},
+	{
+		operation: 'getUsage',
+		name: 'Get Usage',
+		action: 'Get the AI Coworker usage of the workspace',
+		description:
+			'Get what the workspace has left for AI Coworker questions: allowanceRemaining of the monthlyAllowance (renewed at cycleResetsAt), purchasedBalance and total. Each question uses one; at total 0 Ask fails with 402 AI_COWORKER_USAGE_EXHAUSTED.',
+		fields: [],
+		// getAiCoworkerUsage takes the workspace's Hub UUID; a key may read only its own workspace.
+		run: async (ctx, p) => {
+			const { id } = await resolveHubWorkspace(
+				async (spec) => await ctx.request(spec),
+				p.workspace,
+			);
+
+			return oneItem(
+				await ctx.request({
+					method: 'GET',
+					path: encodePath`/api/v1/lens/credits/by-workspace/${String(id)}`,
+				}),
+			);
+		},
+	},
 ];
 
-/** Programmatic Lens chat. Scope: lens:chat. The response is a single answer, not a stream. */
+/**
+ * The AI Coworker: programmatic chat (the answer is a single response, not a stream) and the
+ * workspace's usage balance. Scope: lens:chat. The value stays `lens` so saved workflows keep
+ * working.
+ */
 export const lens: ResourceDef = {
 	value: 'lens',
 	name: 'AI Coworker',

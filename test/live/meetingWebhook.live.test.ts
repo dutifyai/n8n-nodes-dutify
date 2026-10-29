@@ -1,4 +1,5 @@
 import { afterAll, expect, it } from 'vitest';
+import { dutifyErrorOf } from '../../shared/transport';
 import {
 	cleanupStack,
 	liveDescribe,
@@ -84,6 +85,8 @@ liveDescribe('Meeting Webhook — live', () => {
 		const gone = await runError('meetingWebhook', 'get', { webhook: id });
 		expect(gone.httpCode).toBe('404');
 		expect(gone.message).toBe('No such webhook');
+		// Hub PR #393: the error is JSON with a code.
+		expect(dutifyErrorOf(gone).code).toBe('NOT_FOUND');
 	});
 
 	it('a non-https URL is refused with a 400', async () => {
