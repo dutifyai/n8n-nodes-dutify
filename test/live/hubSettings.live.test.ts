@@ -20,10 +20,6 @@ import {
  * Workspace%20Settings, User%20Resource, Calendar}.
  *
  * - Every setter is a round trip that ends on the value it found, also when the test fails.
- * - Select Jira/ClickUp/Airtable Destination only stores a destination on the caller's
- *   participation (it creates no vendor item). It runs only while the workspace has no such
- *   integration, where Hub refuses with 409 INTEGRATION_NOT_CONNECTED and stores nothing. With one
- *   connected the test skips rather than overwrite a real destination.
  * - Delete Call deletes only a call this suite uploaded, which spends transcription quota, so it
  *   runs only with DUTIFY_TEST_PAID_OPS=1 and DUTIFY_TEST_AUDIO. Without them only the refusal for
  *   a call that does not exist is checked.
@@ -169,12 +165,7 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 		expect((await runOne('hubIntegration', 'getPreferred')).preferredIntegration).toBe('PM');
 	});
 
-	/* ---------- Call: send to a vendor ---------- */
-
-	const connected = async (systems: string[]) =>
-		(await run('hubIntegration', 'list')).some(
-			(r) => systems.includes(String(r.integrationSystem)) && r.status === 'CONNECTED',
-		);
+	/* ---------- Call ---------- */
 
 	let testCall = '';
 	const callOrSkip = async (ctx: { skip: (note: string) => void }) => {
@@ -188,45 +179,6 @@ liveDescribe('Hub workspace, integrations, calendar and call writes — live', (
 
 		return testCall;
 	};
-
-	it.for([
-		['sendToJira', ['JIRA', 'ATLASSIAN'], 'Jira', { jiraCloud: 'n8n-live', jiraProjects: ['1'] }],
-		['sendToClickUp', ['CLICKUP'], 'ClickUp', { clickUpList: '1' }],
-		['sendToAirtable', ['AIRTABLE'], 'Airtable', { airtableBase: 'b', airtableTables: ['t'] }],
-	] as Array<[string, string[], string, IDataObject]>)(
-		"%s shows Hub's 409 INTEGRATION_NOT_CONNECTED while the workspace has no such integration",
-		async ([operation, systems, vendor, params], ctx) => {
-			if (await connected(systems)) {
-				ctx.skip(`${vendor} is connected; the test does not overwrite a real destination`);
-
-				return;
-			}
-			const call = await callOrSkip(ctx);
-			const error = await runError('call', operation, { call, ...params });
-			expect(error.httpCode).toBe('409');
-			expect(error.message).toMatch(
-				new RegExp(`^Cannot select an? ${vendor} destination: it is not connected to workspace`),
-			);
-			expect(error.description).toContain('Code: INTEGRATION_NOT_CONNECTED');
-		},
-	);
-
-	it('the Jira and Airtable pickers show Hub\'s "integration not found" answer while none is connected', async (ctx) => {
-		if (await connected(['JIRA', 'ATLASSIAN', 'AIRTABLE'])) {
-			ctx.skip('Jira or Airtable is connected');
-
-			return;
-		}
-		for (const method of ['getJiraClouds', 'getAirtableBases'] as const) {
-			const error = (await loadOptionsOf(method).catch((e: unknown) => e)) as NodeApiError;
-			expect(hubError(error)).toBe(
-				'404 Authorization for the requested integration service was not found.',
-			);
-		}
-		// The dependent pickers wait for their parent field.
-		expect(await loadOptionsOf('getJiraProjects')).toEqual([]);
-		expect(await loadOptionsOf('getAirtableTables')).toEqual([]);
-	});
 
 	/* ---------- Call: custom prompt ---------- */
 

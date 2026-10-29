@@ -1,4 +1,3 @@
-import type { IDataObject } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import { resources } from '../../../nodes/Dutify/registry';
 import { call, LENS_TIMEOUT_MS, lens, recording } from '../../../nodes/Dutify/resources/hub';
@@ -43,9 +42,6 @@ describe('registration', () => {
 			'countSearch',
 			'get',
 			'delete',
-			'sendToJira',
-			'sendToClickUp',
-			'sendToAirtable',
 			'setCustomPrompt',
 			'clearCustomPrompt',
 		]);
@@ -159,9 +155,8 @@ describe('call', () => {
 });
 
 describe('call writes', () => {
-	// Catalog (Calls): DELETE /usercall/{id}; POST /usercall/selection/{jira,clickup,airtable}
-	// with the call UUID; PUT/DELETE /usercall/{id}/custom-prompt with {customPrompt}.
-	const callRow = { id: 42, call: { id: 7, callUuid: 'call-uuid-1' } };
+	// Catalog (Calls): DELETE /usercall/{id}; PUT/DELETE /usercall/{id}/custom-prompt with
+	// {customPrompt}.
 
 	it('delete DELETEs the call by integer ID, picked from the calls', () => {
 		expect(opOf(call, 'delete').build!(reader({ call: '42' }))).toEqual({
@@ -171,119 +166,14 @@ describe('call writes', () => {
 		expect(loaderOf(call, 'delete', 'call')).toBe('getHubCalls');
 	});
 
-	it('sendToJira reads the call UUID and POSTs cloudId + projectIds; Hub checks the connection', async () => {
-		const ctx = fakeContext([callRow, true]);
-		const out = await opOf(call, 'sendToJira').run!(
-			ctx,
-			reader({ call: '42', jiraCloud: 'cloud-1', jiraProjects: ['10001', '10002'] }),
-		);
-		expect(ctx.calls).toEqual([
-			{ method: 'GET', path: '/api/usercall/42' },
-			{
-				method: 'POST',
-				path: '/api/usercall/selection/jira',
-				body: { callUUID: 'call-uuid-1', cloudId: 'cloud-1', projectIds: ['10001', '10002'] },
-			},
-		]);
-		expect(out).toEqual([{ json: { accepted: true } }]);
-	});
-
-	it('sendToClickUp POSTs the call UUID and the list ID', async () => {
-		const ctx = fakeContext([callRow, true]);
-		await opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '901' }));
-		expect(ctx.calls[1]).toEqual({
-			method: 'POST',
-			path: '/api/usercall/selection/clickup',
-			body: { callUUID: 'call-uuid-1', selectedListId: '901' },
-		});
-	});
-
-	it('sendToAirtable POSTs the call UUID, baseId and tableIds', async () => {
-		const ctx = fakeContext([callRow, 'true']);
-		const out = await opOf(call, 'sendToAirtable').run!(
-			ctx,
-			reader({ call: '42', airtableBase: 'app1', airtableTables: ['tbl1'] }),
-		);
-		expect(ctx.calls[1]).toEqual({
-			method: 'POST',
-			path: '/api/usercall/selection/airtable',
-			body: { callUUID: 'call-uuid-1', baseId: 'app1', tableIds: ['tbl1'] },
-		});
-		expect(out).toEqual([{ json: { accepted: true } }]);
-	});
-
-	it.each([
-		['sendToJira', { jiraCloud: 'c', jiraProjects: ['p'] }],
-		['sendToClickUp', { clickUpList: 'l' }],
-		['sendToAirtable', { airtableBase: 'b', airtableTables: ['t'] }],
-	])(
-		"%s passes Hub's 409 INTEGRATION_NOT_CONNECTED refusal through unchanged",
-		async (operation, params) => {
-			const refusal = Object.assign(new Error('Cannot select a destination: not connected'), {
-				httpCode: '409',
-			});
-			const ctx = fakeContext([callRow, refusal]);
-			await expect(opOf(call, operation).run!(ctx, reader({ call: '42', ...params }))).rejects.toBe(
-				refusal,
-			);
-			expect(ctx.calls.map((c) => c.method)).toEqual(['GET', 'POST']);
-		},
-	);
-
-	it.each([
-		['sendToJira', 'Jira'],
-		['sendToClickUp', 'ClickUp'],
-		['sendToAirtable', 'Airtable'],
-	])(
-		'%s says it stores a destination for the action items and creates nothing in the vendor',
-		(operation, vendor) => {
-			const op = opOf(call, operation);
-			expect(op.name).toBe(`Select ${vendor} Destination`);
-			expect(op.action).toBe(`Select a ${vendor} destination for a call's action items`);
-			expect(op.description).toMatch(/stores/i);
-			expect(op.description).toMatch(/Dutify Cloud/);
-			expect(op.description).not.toMatch(/background|arrived/i);
-		},
-	);
-
-	it('refuses an empty project or table list before any request', async () => {
-		for (const [operation, params] of [
-			['sendToJira', { jiraCloud: 'c', jiraProjects: [] }],
-			['sendToAirtable', { airtableBase: 'b', airtableTables: [] }],
-		] as const) {
-			const ctx = fakeContext([]);
-			await expect(
-				opOf(call, operation).run!(ctx, reader({ call: '42', ...params })),
-			).rejects.toThrow(/at least one/i);
-			expect(ctx.calls).toEqual([]);
-		}
-	});
-
-	it('refuses a call without a UUID instead of sending an empty one', async () => {
-		const ctx = fakeContext([{ id: 42, call: {} }]);
-		await expect(
-			opOf(call, 'sendToClickUp').run!(ctx, reader({ call: '42', clickUpList: '9' })),
-		).rejects.toThrow(/UUID/);
-		expect(ctx.calls).toHaveLength(1);
-	});
-
-	it('Jira cloud and projects, and Airtable base and tables, are pickers; the ClickUp list is typed', () => {
-		expect(loaderOf(call, 'sendToJira', 'jiraCloud')).toBe('getJiraClouds');
-		expect(loaderOf(call, 'sendToJira', 'jiraProjects')).toBe('getJiraProjects');
-		expect(field(call, 'sendToJira', 'jiraProjects')?.type).toBe('multiOptions');
-		expect(
-			(field(call, 'sendToJira', 'jiraProjects')?.typeOptions as IDataObject).loadOptionsDependsOn,
-		).toEqual(['jiraCloud']);
-		expect(loaderOf(call, 'sendToAirtable', 'airtableBase')).toBe('getAirtableBases');
-		expect(loaderOf(call, 'sendToAirtable', 'airtableTables')).toBe('getAirtableTables');
-		expect(
-			(field(call, 'sendToAirtable', 'airtableTables')?.typeOptions as IDataObject)
-				.loadOptionsDependsOn,
-		).toEqual(['airtableBase']);
-		// Hub exposes no endpoint listing ClickUp lists, so the list ID is typed.
-		expect(field(call, 'sendToClickUp', 'clickUpList')?.type).toBe('string');
-		for (const name of ['sendToJira', 'sendToClickUp', 'sendToAirtable']) {
-			expect(loaderOf(call, name, 'call')).toBe('getHubCalls');
+	it('offers no third-party destination for action items: Hub no longer supports them', () => {
+		const vendors = /jira|clickup|airtable|destination/i;
+		for (const op of call.operations) {
+			expect(op.operation).not.toMatch(vendors);
+			expect(`${op.name} ${op.action} ${op.description}`).not.toMatch(vendors);
+			for (const f of op.fields) {
+				expect(`${f.name} ${f.displayName} ${f.description ?? ''}`).not.toMatch(vendors);
+			}
 		}
 	});
 

@@ -1,10 +1,6 @@
 import type { ILoadOptionsFunctions } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import {
-	airtableBaseOptions,
-	airtableBasesSpec,
-	airtableTableOptions,
-	airtableTablesSpec,
 	calendarEventOptions,
 	calendarEventsSpec,
 	calendarSeriesOptions,
@@ -13,10 +9,6 @@ import {
 	hubRecordingOptions,
 	hubWebhookOptions,
 	hubWebhooksSpec,
-	jiraCloudOptions,
-	jiraCloudsSpec,
-	jiraProjectOptions,
-	jiraProjectsSpec,
 	loadOptions,
 } from '../../nodes/Dutify/loaders';
 
@@ -150,57 +142,11 @@ describe('Hub meeting webhook picker', () => {
 	});
 });
 
-describe('Hub integration target pickers (catalog: Jira Resource V 2, Airtable Resource V 2)', () => {
-	const UUID = 'c0b647a5-2e8f-4d74-b7b9-8cc2257a07ab';
-
-	it('Jira clouds and projects are read under the workspace UUID', () => {
-		expect(jiraCloudsSpec(UUID)).toEqual({
-			method: 'GET',
-			path: `/api/v2/workspaces/${UUID}/integrations/jira/clouds`,
-		});
-		expect(jiraProjectsSpec(UUID, 'cloud/1')).toEqual({
-			method: 'GET',
-			path: `/api/v2/workspaces/${UUID}/integrations/jira/clouds/cloud%2F1/projects`,
-		});
-	});
-
-	it('Jira options: clouds by cloudId, projects by id with their key', () => {
-		expect(
-			jiraCloudOptions([{ cloudId: 'c1', name: 'acme' }, { cloudId: 'c2' }, { name: 'no id' }]),
-		).toEqual([
-			{ name: 'acme', value: 'c1' },
-			{ name: 'c2', value: 'c2' },
-		]);
-		expect(
-			jiraProjectOptions([
-				{ id: '10001', key: 'APP', name: 'App' },
-				{ id: '10002', name: 'Ops' },
-				{ key: 'X' },
-			]),
-		).toEqual([
-			{ name: 'App (APP)', value: '10001' },
-			{ name: 'Ops', value: '10002' },
-		]);
-		expect(jiraCloudOptions(null)).toEqual([]);
-	});
-
-	it('Airtable bases (a {bases} list) and tables are read under the workspace UUID', () => {
-		expect(airtableBasesSpec(UUID)).toEqual({
-			method: 'GET',
-			path: `/api/v2/workspaces/${UUID}/integrations/airtable/bases`,
-		});
-		expect(airtableTablesSpec(UUID, 'app1')).toEqual({
-			method: 'GET',
-			path: `/api/v2/workspaces/${UUID}/integrations/airtable/bases/app1/tables`,
-		});
-		expect(airtableBaseOptions({ bases: [{ id: 'app1', name: 'CRM' }, { name: 'x' }] })).toEqual([
-			{ name: 'CRM', value: 'app1' },
-		]);
-		expect(airtableBaseOptions(undefined)).toEqual([]);
-		expect(airtableTableOptions([{ id: 'tbl1', name: 'Tasks' }, { id: 'tbl2' }])).toEqual([
-			{ name: 'Tasks', value: 'tbl1' },
-			{ name: 'tbl2', value: 'tbl2' },
-		]);
+describe('Hub integration target pickers', () => {
+	it('are gone with the destination operations Hub no longer supports', () => {
+		for (const name of Object.keys(loadOptions)) {
+			expect(name).not.toMatch(/jira|clickup|airtable/i);
+		}
 	});
 });
 
@@ -245,10 +191,6 @@ describe('Hub calendar pickers (catalog: Calendar)', () => {
 
 	it('are wired as loadOptions methods', () => {
 		for (const name of [
-			'getJiraClouds',
-			'getJiraProjects',
-			'getAirtableBases',
-			'getAirtableTables',
 			'getCalendarEvents',
 			'getCalendarSeries',
 		]) {

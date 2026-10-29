@@ -7,7 +7,6 @@ import {
 	isSet,
 	jsonField,
 	oneItem,
-	splitList,
 	toInstant,
 } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
@@ -87,74 +86,6 @@ const SEARCH_DESCRIPTION =
 
 const callPath = (p: ParamReader) => `${CALLS}/${encodeURIComponent(p.get<string>('call'))}`;
 
-/** A multi-select value as a list of IDs, refused when empty. */
-function nonEmptyList(value: unknown, what: string): string[] {
-	const ids = splitList(value);
-	if (ids.length === 0) {
-		throw new ApplicationError(`Choose at least one ${what}`);
-	}
-
-	return ids;
-}
-
-function requiredText(value: string, what: string): string {
-	if (!isSet(value) || value.trim() === '') {
-		throw new ApplicationError(`${what} is empty`);
-	}
-
-	return value.trim();
-}
-
-/** The call's UUID, which the selection endpoints take instead of its integer ID. */
-async function callUuid(ctx: OperationContext, p: ParamReader): Promise<string> {
-	const row = (await ctx.request({ method: 'GET', path: callPath(p) })) as {
-		call?: { callUuid?: string };
-	} | null;
-	const uuid = row?.call?.callUuid;
-	if (!uuid) {
-		throw new ApplicationError(`Hub returned no UUID for call ${p.get<string>('call')}`);
-	}
-
-	return uuid;
-}
-
-/**
- * Hub's selection endpoints: they store a vendor destination for the call's action items on the
- * caller's participation, and create nothing in the vendor (Hub creates new action items in
- * Dutify Cloud). Hub refuses a bad body (400 INVALID_SELECTION), an unknown call
- * (404 CALL_NOT_FOUND) and a vendor not connected to the caller's default workspace
- * (409 INTEGRATION_NOT_CONNECTED), and stores nothing on a refusal. Its message reaches the user.
- *
- * The operation values keep their original `sendTo…` names so saved workflows keep working.
- */
-function selectionOperation(options: {
-	operation: string;
-	vendor: string;
-	segment: string;
-	fields: INodeProperties[];
-	target: (p: ParamReader) => IDataObject;
-}): OperationDef {
-	const { operation, vendor, segment, fields, target } = options;
-
-	return {
-		operation,
-		name: `Select ${vendor} Destination`,
-		action: `Select a ${vendor} destination for a call's action items`,
-		description: `Stores a ${vendor} destination for the call's action items on your participation in the call. It creates no ${vendor} item: Dutify creates new action items in Dutify Cloud. accepted: true means the destination was stored. Dutify refuses it when ${vendor} is not connected to your default workspace`,
-		fields: [callField(), ...fields],
-		run: async (ctx, p) => {
-			const body = target(p);
-			const response = await ctx.request({
-				method: 'POST',
-				path: `${CALLS}/selection/${segment}`,
-				body: { callUUID: await callUuid(ctx, p), ...body },
-			});
-
-			return [{ json: { accepted: response === true || response === 'true' } }];
-		},
-	};
-}
-
 const callOperations: OperationDef[] = [
 	{
 		operation: 'list',
@@ -231,77 +162,6 @@ const callOperations: OperationDef[] = [
 		fields: [callField()],
 		build: (p) => ({ method: 'DELETE', path: callPath(p) }),
 	},
-	selectionOperation({
-		operation: 'sendToJira',
-		vendor: 'Jira',
-		segment: 'jira',
-		fields: [
-			{
-				...idPicker('Jira Site Name or ID', 'jiraCloud', 'getJiraClouds', undefined),
-				description:
-					'The Jira site (cloud) of the destination. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-			},
-			{
-				displayName: 'Jira Project Names or IDs',
-				name: 'jiraProjects',
-				type: 'multiOptions',
-				typeOptions: { loadOptionsMethod: 'getJiraProjects', loadOptionsDependsOn: ['jiraCloud'] },
-				default: [],
-				required: true,
-				description:
-					'The Jira projects of the destination. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-			},
-		],
-		target: (p) => ({
-			cloudId: p.get<string>('jiraCloud'),
-			projectIds: nonEmptyList(p.get<unknown>('jiraProjects', []), 'Jira project'),
-		}),
-	}),
-	selectionOperation({
-		operation: 'sendToClickUp',
-		vendor: 'ClickUp',
-		segment: 'clickup',
-		fields: [
-			{
-				displayName: 'ClickUp List ID',
-				name: 'clickUpList',
-				type: 'string',
-				default: '',
-				required: true,
-				placeholder: 'e.g. 901234567890',
-				description:
-					'The ClickUp list of the destination: the number after /li/ in the list URL. Dutify does not list ClickUp lists, so it is typed here.',
-			},
-		],
-		target: (p) => ({
-			selectedListId: requiredText(p.get<string>('clickUpList', ''), 'ClickUp List ID'),
-		}),
-	}),
-	selectionOperation({
-		operation: 'sendToAirtable',
-		vendor: 'Airtable',
-		segment: 'airtable',
-		fields: [
-			idPicker('Airtable Base Name or ID', 'airtableBase', 'getAirtableBases', undefined),
-			{
-				displayName: 'Airtable Table Names or IDs',
-				name: 'airtableTables',
-				type: 'multiOptions',
-				typeOptions: {
-					loadOptionsMethod: 'getAirtableTables',
-					loadOptionsDependsOn: ['airtableBase'],
-				},
-				default: [],
-				required: true,
-				description:
-					'The Airtable tables of the destination. Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-			},
-		],
-		target: (p) => ({
-			baseId: p.get<string>('airtableBase'),
-			tableIds: nonEmptyList(p.get<unknown>('airtableTables', []), 'Airtable table'),
-		}),
-	}),
 	{
 		operation: 'setCustomPrompt',
 		name: 'Set Custom Prompt',

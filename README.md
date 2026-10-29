@@ -52,7 +52,7 @@ A personal key works in every workspace you belong to. Each node has a **Workspa
 | Integration    | Dutify Cloud Webhook (webhooks for Dutify Cloud, Codexum and Roadmarq events, deliveries, replay)                                                     |
 | Codexum (wiki) | Codexum Page (Markdown in and out), Codexum Space (incl. public wiki settings), Codexum Attachment (binary upload)                                    |
 | Roadmarq       | Feature Request, Bug, Roadmarq Board (update its settings)                                                                                            |
-| Dutify Hub     | Call (incl. delete, select a Jira/ClickUp/Airtable destination for its action items, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), AI Coworker (ask, usage), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
+| Dutify Hub     | Call (incl. delete, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), AI Coworker (ask, usage), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
 
 Pickers load names from your workspace (spaces, lists, statuses, members, boards, pages and
 more). Name-based fields such as a task status match names, ignoring case. A misspelled name
@@ -113,6 +113,15 @@ number of pages) and the bugs of a Roadmarq board.
   what is left: `allowanceRemaining` of the `monthlyAllowance` (renewed at `cycleResetsAt`),
   `purchasedBalance` and `total`. When `total` is 0, Ask fails with 402
   `AI_COWORKER_USAGE_EXHAUSTED` until the allowance renews or a workspace owner adds more.
+
+## Changelog
+
+### 0.1.4
+
+- Removed: the three Call operations that selected a third-party destination for a call's
+  action items (the Select ... Destination operations), with their fields and pickers. Dutify
+  Hub no longer supports those destinations. A saved workflow that uses one of them needs a
+  different operation. Hub creates the action items of your calls in Dutify Cloud.
 
 ## Trigger setup
 
