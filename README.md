@@ -46,7 +46,7 @@ A personal key works in every workspace you belong to. Each node has a **Workspa
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Account        | Account (who am I, list/find my workspaces), Workspace (context, dashboard, reference data, feature request boards, wiki spaces)                      |
 | Tasks          | Task, Task Comment, Task Relationship, Task Sharing, Time Entry, Saved Filter                                                                         |
-| Structure      | Space, Folder, List, Custom Field, Tag, View                                                                                                          |
+| Structure      | Space (create, get, update incl. subtasks and sprints, delete), Folder, List, Custom Field, Tag, View                                                 |
 | Planning       | Sprint (groups, sprints, tasks, burndown), Automation                                                                                                 |
 | People         | Team, Member, Invitation, Import Job, User, Notification, Activity Log                                                                                |
 | Integration    | Dutify Cloud Webhook (webhooks for Dutify Cloud, Codexum and Roadmarq events, deliveries, replay)                                                     |
@@ -60,9 +60,9 @@ fails with a 400, and the n8n error lists the valid options.
 
 ### Dutify Cloud
 
-- **Subtasks** are switched on in the space settings. Once they are, a task can get a parent.
-- **Sprints** are enabled in the space settings. Once they are, the sprint operations work in
-  that space.
+- **Subtasks** and **Sprints** are off in a new space. Turn them on with Space → Update
+  (Subtasks, Sprints); then a task in that space can get a parent, and the sprint operations
+  work there.
 - **Member administration** (changing a role, removing a member, leaving a workspace,
   transferring ownership) is done by signed-in users in the Dutify app; Dutify refuses it for
   API keys. Member → Get Many lists the members.

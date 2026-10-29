@@ -5,7 +5,6 @@ import {
 	liveDescribe,
 	live,
 	loadOptionsOf,
-	rawRequest,
 	run,
 	runError,
 	runOne,
@@ -113,11 +112,9 @@ liveDescribe('task, task comment, task relationship — live', () => {
 	// Fixed in dutify-pm #234 (prod-0.1.793): the parent alone places the subtask, by task ID or
 	// by key (the key resolves in the API key's workspace).
 	it('subtasks: create with only a parent, by task ID and by key, lands in the parent list', async () => {
-		// The node has no Space > Update.
-		await rawRequest({
-			method: 'PUT',
-			path: `/mp/api/v1/spaces/${space.identifier}`,
-			body: { isSubtasksEnabled: true },
+		await runOne('space', 'update', {
+			space: space.identifier,
+			updateFields: { isSubtasksEnabled: true },
 		});
 		for (const parent of [task.identifier, task.key]) {
 			const created = await runOne('task', 'create', {

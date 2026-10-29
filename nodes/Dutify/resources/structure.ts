@@ -1,5 +1,13 @@
+import { ApplicationError } from 'n8n-workflow';
 import type { IDataObject, INodeProperties } from 'n8n-workflow';
-import { collection, isSet, requireChange, splitList, text } from '../../../shared/fieldHelpers';
+import {
+	collection,
+	isSet,
+	jsonField,
+	requireChange,
+	splitList,
+	text,
+} from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
 import type { OperationDef, ParamReader, RequestSpec, ResourceDef } from '../../../shared/types';
 
@@ -89,6 +97,138 @@ function deleteSpec(basePath: string, idParam: string) {
 
 /* ---------- space ---------- */
 
+const spacePath = (p: ParamReader) => encodePath`/mp/api/v1/spaces/${p.get<string>('space')}`;
+
+const spaceIdPicker = () => idPicker('Space Name or ID', 'space', 'getSpaceIds');
+
+const toggle = (displayName: string, name: string, description: string): INodeProperties => ({
+	displayName,
+	name,
+	type: 'boolean',
+	default: false,
+	description,
+});
+
+/** SpaceUpdateRequest fields sent as given. Unset fields stay unchanged server-side. */
+const spaceScalarKeys = [
+	'name',
+	'description',
+	'icon',
+	'color',
+	'isPrivate',
+	'isSubtasksEnabled',
+	'isSprintsEnabled',
+	'isStatusesInherited',
+	'isPrioritiesInherited',
+	'isTaskKeyUsed',
+	'taskKeyPrefix',
+] as const;
+
+/** SpaceUpdateRequest list fields with their labels; typed as JSON text or given by an expression. */
+const spaceListFields = {
+	statuses: 'Statuses',
+	priorities: 'Priorities',
+	statusReassignments: 'Status Reassignments',
+	priorityReassignments: 'Priority Reassignments',
+	userAccess: 'User Access',
+	teamAccess: 'Team Access',
+} as const;
+
+function jsonArray(value: unknown, label: string): IDataObject[] {
+	let parsed: unknown = value;
+	if (typeof value === 'string') {
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			parsed = undefined;
+		}
+	}
+	if (!Array.isArray(parsed)) {
+		throw new ApplicationError(`${label} must be a JSON array`);
+	}
+
+	return parsed as IDataObject[];
+}
+
+function spaceUpdateBody(fields: IDataObject): IDataObject {
+	const body = pick(fields, spaceScalarKeys);
+	for (const [key, label] of Object.entries(spaceListFields)) {
+		if (isSet(fields[key])) {
+			body[key] = jsonArray(fields[key], label);
+		}
+	}
+
+	return requireChange(body);
+}
+
+const spaceUpdateFields = (): INodeProperties[] => [
+	text('Name', 'name', 'New name, up to 100 characters'),
+	description,
+	icon('Icon identifier or emoji shortcode, for example rocket'),
+	color('Hex color code, for example #4A90D9'),
+	isPrivate('the space'),
+	toggle(
+		'Subtasks',
+		'isSubtasksEnabled',
+		'Whether tasks in the space can have subtasks. While this is off, creating a subtask there is refused.',
+	),
+	toggle(
+		'Sprints',
+		'isSprintsEnabled',
+		'Whether the space uses sprints. While this is off, sprint groups cannot be created there.',
+	),
+	toggle(
+		'Statuses Inherited',
+		'isStatusesInherited',
+		'Whether the space uses the workspace statuses instead of its own',
+	),
+	toggle(
+		'Priorities Inherited',
+		'isPrioritiesInherited',
+		'Whether the space uses the workspace priorities instead of its own',
+	),
+	toggle(
+		'Use Task Keys',
+		'isTaskKeyUsed',
+		'Whether tasks in the space get sequential keys such as ENG-12',
+	),
+	text(
+		'Task Key Prefix',
+		'taskKeyPrefix',
+		'Prefix of the task keys, up to 20 characters, for example ENG',
+	),
+	jsonField(
+		spaceListFields.statuses,
+		'statuses',
+		'JSON array that replaces the space statuses, such as [{"name":"In Progress","type":"ACTIVE"}]. The type is NOT_STARTED, ACTIVE or CLOSED; give an identifier to keep an existing status.',
+	),
+	jsonField(
+		spaceListFields.priorities,
+		'priorities',
+		'JSON array that replaces the space priorities, such as [{"name":"High","backgroundColor":"#E53E3E"}]. Give an identifier to keep an existing priority.',
+	),
+	jsonField(
+		spaceListFields.statusReassignments,
+		'statusReassignments',
+		'JSON array that moves tasks off removed statuses, such as [{"sourceStatusIdentifier":"sts_old","targetStatusIdentifier":"sts_new"}]',
+	),
+	jsonField(
+		spaceListFields.priorityReassignments,
+		'priorityReassignments',
+		'JSON array that moves tasks off removed priorities, such as [{"sourcePriorityIdentifier":"pri_old","targetPriorityIdentifier":"pri_new"}]',
+	),
+	jsonField(
+		spaceListFields.userAccess,
+		'userAccess',
+		'JSON array of user access grants, such as [{"userUuid":"550e8400-e29b-41d4-a716-446655440000","accessLevelId":1}]',
+	),
+	jsonField(
+		spaceListFields.teamAccess,
+		'teamAccess',
+		'JSON array of team access grants, such as [{"teamIdentifier":"team_abc","accessLevelId":1}]',
+	),
+];
+
 export const space: ResourceDef = {
 	value: 'space',
 	name: 'Space',
@@ -117,6 +257,35 @@ export const space: ResourceDef = {
 					...pick(p.get<IDataObject>('additionalFields', {}), metadataKeys.slice(1)),
 				},
 			}),
+		},
+		{
+			operation: 'get',
+			name: 'Get',
+			action: 'Get a space',
+			description: 'Fetch a space with its settings, such as whether subtasks and sprints are on',
+			fields: [spaceIdPicker()],
+			build: (p) => ({ method: 'GET', path: spacePath(p) }),
+		},
+		{
+			operation: 'update',
+			name: 'Update',
+			action: 'Update a space',
+			description:
+				'Change only the settings you set on a space, such as turning subtasks or sprints on',
+			fields: [spaceIdPicker(), collection('Update Fields', 'updateFields', spaceUpdateFields())],
+			build: (p) => ({
+				method: 'PUT',
+				path: spacePath(p),
+				body: spaceUpdateBody(p.get<IDataObject>('updateFields', {})),
+			}),
+		},
+		{
+			operation: 'delete',
+			name: 'Delete',
+			action: 'Delete a space',
+			description: 'Soft-delete a space with its folders, lists and tasks',
+			fields: [spaceIdPicker()],
+			build: (p) => ({ method: 'DELETE', path: spacePath(p) }),
 		},
 	],
 };

@@ -21,11 +21,10 @@ liveDescribe('sprint — live', () => {
 
 	beforeAll(async () => {
 		space = await createTestSpace(cleanup, 'sprint');
-		// Sprints are off for a new space, and the node has no Space > Update.
-		await rawRequest({
-			method: 'PUT',
-			path: `/mp/api/v1/spaces/${space.identifier}`,
-			body: { isSprintsEnabled: true },
+		// Sprints are off for a new space.
+		await runOne('space', 'update', {
+			space: space.identifier,
+			updateFields: { isSprintsEnabled: true },
 		});
 		const listName = `Sprint tasks ${runId}`;
 		await runOne('list', 'create', { space: space.name, name: listName });

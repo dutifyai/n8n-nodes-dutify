@@ -31,7 +31,7 @@ describe('registration', () => {
 
 	it('exposes exactly the catalog operations', () => {
 		const names = (d: ResourceDef) => d.operations.map((o) => o.operation).sort();
-		expect(names(space)).toEqual(['create']);
+		expect(names(space)).toEqual(['create', 'delete', 'get', 'update']);
 		expect(names(folder)).toEqual(['create', 'delete', 'update']);
 		expect(names(list)).toEqual(['create', 'delete', 'update']);
 		expect(names(customField)).toEqual(['create', 'delete', 'update']);
@@ -67,6 +67,145 @@ describe('space', () => {
 			color: '#4A90D9',
 			isPrivate: false,
 		});
+	});
+});
+
+describe('space get, update, delete (catalog: Spaces, /mp/api/v1/spaces/{identifier})', () => {
+	it('get sends GET for the identifier, encoded', () => {
+		expect(build(space, 'get', { space: 'sp/1' })).toEqual({
+			method: 'GET',
+			path: '/mp/api/v1/spaces/sp%2F1',
+		});
+	});
+
+	it('delete sends DELETE for the identifier, encoded', () => {
+		expect(build(space, 'delete', { space: 'sp/1' })).toEqual({
+			method: 'DELETE',
+			path: '/mp/api/v1/spaces/sp%2F1',
+		});
+	});
+
+	it('update turns subtasks and sprints on with a PUT of only those fields', () => {
+		expect(
+			build(space, 'update', {
+				space: 'sp_1',
+				updateFields: { isSubtasksEnabled: true, isSprintsEnabled: true },
+			}),
+		).toEqual({
+			method: 'PUT',
+			path: '/mp/api/v1/spaces/sp_1',
+			body: { isSubtasksEnabled: true, isSprintsEnabled: true },
+		});
+	});
+
+	it('update keeps false: switching subtasks or sprints off is a change', () => {
+		expect(
+			build(space, 'update', {
+				space: 'sp_1',
+				updateFields: { isSubtasksEnabled: false, isSprintsEnabled: false },
+			}).body,
+		).toEqual({ isSubtasksEnabled: false, isSprintsEnabled: false });
+	});
+
+	it('update sends every scalar field of SpaceUpdateRequest that is set, and skips empty ones', () => {
+		expect(
+			build(space, 'update', {
+				space: 'sp_1',
+				updateFields: {
+					name: 'Engineering',
+					description: 'All engineering projects',
+					icon: 'rocket',
+					color: '#4A90D9',
+					isPrivate: true,
+					isStatusesInherited: false,
+					isPrioritiesInherited: true,
+					isTaskKeyUsed: true,
+					taskKeyPrefix: 'ENG',
+					statuses: '',
+				},
+			}).body,
+		).toEqual({
+			name: 'Engineering',
+			description: 'All engineering projects',
+			icon: 'rocket',
+			color: '#4A90D9',
+			isPrivate: true,
+			isStatusesInherited: false,
+			isPrioritiesInherited: true,
+			isTaskKeyUsed: true,
+			taskKeyPrefix: 'ENG',
+		});
+	});
+
+	it('update sends the list fields as JSON arrays, typed as text or given by an expression', () => {
+		const statuses = [{ name: 'In Progress', type: 'ACTIVE' }];
+		const priorities = [{ name: 'High' }];
+		const statusReassignments = [
+			{ sourceStatusIdentifier: 'sts_old', targetStatusIdentifier: 'sts_new' },
+		];
+		const priorityReassignments = [
+			{ sourcePriorityIdentifier: 'pri_old', targetPriorityIdentifier: 'pri_new' },
+		];
+		const userAccess = [{ userUuid: '550e8400-e29b-41d4-a716-446655440000', accessLevelId: 1 }];
+		const teamAccess = [{ teamIdentifier: 'team_abc', accessLevelId: 1 }];
+		expect(
+			build(space, 'update', {
+				space: 'sp_1',
+				updateFields: {
+					statuses: JSON.stringify(statuses),
+					priorities,
+					statusReassignments: JSON.stringify(statusReassignments),
+					priorityReassignments,
+					userAccess: JSON.stringify(userAccess),
+					teamAccess,
+				},
+			}).body,
+		).toEqual({
+			statuses,
+			priorities,
+			statusReassignments,
+			priorityReassignments,
+			userAccess,
+			teamAccess,
+		});
+	});
+
+	it.each([
+		'statuses',
+		'priorities',
+		'statusReassignments',
+		'priorityReassignments',
+		'userAccess',
+		'teamAccess',
+	])('update refuses %s that is not a JSON array, before sending anything', (field) => {
+		for (const value of ['{"name":"x"}', 'not json']) {
+			expect(() =>
+				build(space, 'update', { space: 'sp_1', updateFields: { [field]: value } }),
+			).toThrow(/JSON array/);
+		}
+	});
+
+	it('update with nothing set throws instead of sending PUT {}', () => {
+		expect(() => build(space, 'update', { space: 'sp_1', updateFields: {} })).toThrow(
+			/at least one/i,
+		);
+	});
+
+	it('get, update and delete pick the space by identifier', () => {
+		for (const operation of ['get', 'update', 'delete']) {
+			const field = op(space, operation).fields.find((f) => f.name === 'space');
+			expect(
+				(field?.typeOptions as { loadOptionsMethod?: string } | undefined)?.loadOptionsMethod,
+			).toBe('getSpaceIds');
+		}
+	});
+
+	it('update offers the subtasks and sprints toggles as booleans', () => {
+		const updateFields = op(space, 'update').fields.find((f) => f.name === 'updateFields');
+		const options = (updateFields?.options ?? []) as Array<{ name: string; type: string }>;
+		for (const name of ['isSubtasksEnabled', 'isSprintsEnabled']) {
+			expect(options.find((o) => o.name === name)?.type).toBe('boolean');
+		}
 	});
 });
 
