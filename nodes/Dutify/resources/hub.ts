@@ -900,9 +900,9 @@ const lensOperations: OperationDef[] = [
 	{
 		operation: 'ask',
 		name: 'Ask',
-		action: 'Ask Lens a question',
+		action: 'Ask AI Coworker a question',
 		description:
-			"Ask Lens, which answers from the workspace's recordings, calls and transcripts. It can take 15 to 30 seconds and uses credits.",
+			"Ask AI Coworker, which answers from the workspace's recordings, calls and transcripts. It can take 15 to 30 seconds and counts toward the workspace's AI Coworker usage, which is billed separately.",
 		fields: [
 			{
 				displayName: 'Message',
@@ -941,7 +941,7 @@ const lensOperations: OperationDef[] = [
 /** Programmatic Lens chat. Scope: lens:chat. The response is a single answer, not a stream. */
 export const lens: ResourceDef = {
 	value: 'lens',
-	name: 'Lens',
+	name: 'AI Coworker',
 	workspaceScoped: true,
 	operations: lensOperations,
 };

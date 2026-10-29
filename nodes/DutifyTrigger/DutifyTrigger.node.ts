@@ -463,15 +463,15 @@ export class DutifyTrigger implements INodeType {
 						description: 'Wiki page, space, comment, reaction and attachment events',
 					},
 					{
+						name: 'Dutify Cloud',
+						value: 'pm',
+						description: 'Task, comment, list, space and workspace events',
+					},
+					{
 						name: 'Meeting Processed',
 						value: 'meeting',
 						description:
-							'A Hub meeting of the workspace finished processing (summary, action items and more)',
-					},
-					{
-						name: 'Project Management',
-						value: 'pm',
-						description: 'Task, comment, list, space and workspace events',
+							'A Dutify Hub meeting of the workspace finished processing (summary, action items and more)',
 					},
 					{
 						name: 'Roadmarq (Feature Requests)',

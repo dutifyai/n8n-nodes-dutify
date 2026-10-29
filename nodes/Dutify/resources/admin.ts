@@ -284,14 +284,15 @@ const invitationOperations: OperationDef[] = [
 					type: 'boolean',
 					default: true,
 					description:
-						'Whether accepting grants access to Project Management, Wiki and Feature Requests. The API default is on.',
+						'Whether accepting grants access to Dutify Cloud, Codexum and Roadmarq. The API default is on.',
 				},
 				{
 					displayName: 'Hub Access',
 					name: 'hubAccess',
 					type: 'boolean',
 					default: false,
-					description: 'Whether accepting grants access to Hub and Lens. The API default is off.',
+					description:
+						'Whether accepting grants access to Dutify Hub and AI Coworker. The API default is off.',
 				},
 			]),
 		],

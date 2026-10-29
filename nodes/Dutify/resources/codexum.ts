@@ -508,7 +508,7 @@ const spaceOptionFields = (): INodeProperties[] => [
 		name: 'projectId',
 		type: 'number',
 		default: 0,
-		description: 'ID of a project in Project Management to link the space to',
+		description: 'ID of a Dutify Cloud project to link the space to',
 	},
 ];
 

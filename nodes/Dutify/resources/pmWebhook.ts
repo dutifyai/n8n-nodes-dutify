@@ -161,7 +161,7 @@ const operations: OperationDef[] = [
 		name: 'Create',
 		action: 'Create a webhook',
 		description:
-			'Subscribe a URL to PM events. Dutify signs each delivery with the secret you set (HMAC-SHA256, X-Webhook-Signature-256 header). Needs the Manage Webhooks permission',
+			'Subscribe a URL to Dutify Cloud, Codexum or Roadmarq events. Dutify signs each delivery with the secret you set (HMAC-SHA256, X-Webhook-Signature-256 header). Needs the Manage Webhooks permission',
 		fields: [
 			{
 				displayName: 'URL',
@@ -348,7 +348,7 @@ const operations: OperationDef[] = [
 		name: 'Get Event Types',
 		action: 'Get the event types a webhook can subscribe to',
 		description:
-			'List every event type a webhook can subscribe to, across Project Management, Codexum and Roadmarq, each with its product, a description and the scope types that can narrow it',
+			'List every event type a webhook can subscribe to, across Dutify Cloud, Codexum and Roadmarq, each with its product (pm for Dutify Cloud, codexum or roadmarq), a description and the scope types that can narrow it',
 		fields: [],
 		build: (p) => ({ method: 'GET', path: `${webhooksPath(p)}/event-types` }),
 	},
@@ -357,7 +357,7 @@ const operations: OperationDef[] = [
 /** Outgoing PM webhooks (PM "Webhook Resource"). */
 export const pmWebhook: ResourceDef = {
 	value: 'pmWebhook',
-	name: 'PM Webhook',
+	name: 'Dutify Cloud Webhook',
 	workspaceScoped: true,
 	operations,
 };

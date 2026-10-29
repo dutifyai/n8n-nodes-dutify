@@ -176,7 +176,7 @@ const userOperations: OperationDef[] = [
 		name: 'Get Notification Settings',
 		action: 'Get the notification settings',
 		description:
-			'Fetch which notifications the current user gets in the app, by email and in the browser, for Project Management, Codexum and Roadmarq',
+			'Fetch which notifications the current user gets in the app, by email and in the browser, for Dutify Cloud, Codexum and Roadmarq',
 		fields: [],
 		build: () => ({ method: 'GET', path: `${NOTIFICATIONS_PATH}/all` }),
 	},
@@ -221,7 +221,7 @@ const userOperations: OperationDef[] = [
 		name: 'Update Module Notification Channel',
 		action: 'Update the Codexum or Roadmarq notifications of a channel',
 		description:
-			'Turn individual Codexum (wiki) or Roadmarq (feedback) notifications on or off for the app, email or browser channel. Project Management notifications use Update Notification Channel',
+			'Turn individual Codexum (wiki) or Roadmarq (feedback) notifications on or off for the app, email or browser channel. Dutify Cloud notifications use Update Notification Channel',
 		fields: [
 			{
 				displayName: 'Module',

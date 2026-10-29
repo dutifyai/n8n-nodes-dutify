@@ -236,7 +236,7 @@ export const hubWorkspace: ResourceDef = {
  * The task systems Hub accepts (catalog: enum ["PM"]). Any other value is refused with
  * 400 UNSUPPORTED_TASK_SYSTEM, whose message reaches the user.
  */
-const TASK_SYSTEMS = [{ name: 'Dutify Cloud (Project Management)', value: 'PM' }];
+const TASK_SYSTEMS = [{ name: 'Dutify Cloud', value: 'PM' }];
 
 const integrationOperations: OperationDef[] = [
 	{
@@ -260,7 +260,7 @@ const integrationOperations: OperationDef[] = [
 		name: 'Get Preferred',
 		action: 'Get the preferred integration',
 		description:
-			"Get the workspace's task system: always PM, since Dutify Cloud is where Hub creates new action items",
+			"Get the workspace's task system: always Dutify Cloud, since that is where Hub creates new action items",
 		fields: [],
 		run: async (ctx, p) => {
 			const response = await ctx.request({
@@ -275,7 +275,7 @@ const integrationOperations: OperationDef[] = [
 		operation: 'setPreferred',
 		name: 'Set Preferred',
 		action: 'Set the preferred integration',
-		description: "Set the workspace's task system. Dutify Cloud (PM) is the only one Hub supports",
+		description: "Set the workspace's task system. Dutify Cloud is the only one Hub supports",
 		fields: [
 			{
 				displayName: 'Preferred Integration',

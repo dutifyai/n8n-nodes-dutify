@@ -1,7 +1,7 @@
 {
 	"name": "@dutifyai/n8n-nodes-dutify",
 	"version": "0.1.2",
-	"description": "n8n community nodes for Dutify: project management, Codexum wiki, Roadmarq feature requests and Hub meeting recordings, with a trigger for PM events and processed meetings.",
+	"description": "n8n community nodes for Dutify: Dutify Cloud projects and tasks, Codexum docs and wiki, Roadmarq feedback, feature requests and bugs, and Dutify Hub meetings, recordings and AI Coworker, with a trigger for their events and processed meetings.",
 	"license": "MIT",
 	"publishConfig": {
 		"access": "public"
@@ -12,7 +12,18 @@
 		"url": "git+https://github.com/dutifyai/n8n-nodes-dutify.git"
 	},
 	"keywords": [
-		"n8n-community-node-package"
+		"n8n-community-node-package",
+		"dutify",
+		"dutify-cloud",
+		"codexum",
+		"roadmarq",
+		"dutify-hub",
+		"ai-coworker",
+		"project-management",
+		"tasks",
+		"wiki",
+		"feature-requests",
+		"meeting-notes"
 	],
 	"author": {
 		"name": "Dutify",
