@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { resources } from '../../../nodes/Dutify/registry';
-import { bug, featureRequest } from '../../../nodes/Dutify/resources/roadmarq';
+import { bug, featureRequest, roadmarqBoard } from '../../../nodes/Dutify/resources/roadmarq';
 import type { OperationDef, ResourceDef } from '../../../shared/types';
-import { reader } from '../helpers';
+import { fakeContext, reader } from '../helpers';
 
 const WS = 'ws-1';
 const FR = '/api/roadmarq/v1/requests/lite/FR-42';
@@ -96,6 +96,8 @@ describe('featureRequest', () => {
 				pageParam: 'page',
 				sizeParam: 'size',
 				itemsPath: 'content',
+				// The envelope's page count ends the walk without an extra empty request.
+				totalPagesPath: 'totalPages',
 				zeroBased: true,
 				maxPageSize: 200,
 			},
@@ -240,15 +242,44 @@ describe('featureRequest', () => {
 });
 
 describe('bug', () => {
-	it('list GETs the board bugs, unpaged (the response is a plain array)', () => {
+	// Roadmarq PR #33: page (zero-based) and size (max 200) turn on the requests/lite envelope.
+	it('list GETs the board bugs page by page: page/size, content envelope, totalPages', () => {
 		const spec = bg('list').build!(reader({ board: 'feedback' }));
 		expect(spec).toEqual({
 			method: 'GET',
 			path: '/api/roadmarq/v1/boards/feedback/bugs/lite',
 			qs: wsQs,
+			paginate: {
+				kind: 'page',
+				pageParam: 'page',
+				sizeParam: 'size',
+				itemsPath: 'content',
+				totalPagesPath: 'totalPages',
+				zeroBased: true,
+				maxPageSize: 200,
+			},
 		});
-		expect(spec.paginate).toBeUndefined();
 		expect(bg('list').list).toBe(true);
+	});
+
+	it('list with Return All walks every page; with Limit it stops at the limit', async () => {
+		const spec = bg('list').build!(reader({ board: 'feedback' }));
+		const bugs = (from: number, n: number) =>
+			Array.from({ length: n }, (_, i) => ({ shortId: `BG-${from + i}` }));
+		const all = fakeContext([
+			{ content: bugs(0, 200), pageNumber: 0, pageSize: 200, totalElements: 250, totalPages: 2 },
+			{ content: bugs(200, 50), pageNumber: 1, pageSize: 200, totalElements: 250, totalPages: 2 },
+		]);
+		expect(await all.requestAll(spec)).toHaveLength(250);
+		expect(all.calls.map((c) => c.qs)).toEqual([
+			{ ...wsQs, page: 0, size: 200 },
+			{ ...wsQs, page: 1, size: 200 },
+		]);
+		const limited = fakeContext([
+			{ content: bugs(0, 200), pageNumber: 0, pageSize: 200, totalElements: 250, totalPages: 2 },
+		]);
+		expect(await limited.requestAll(spec, 5)).toEqual(bugs(0, 5));
+		expect(limited.calls).toHaveLength(1);
 	});
 
 	it('list filters by severity and status name', () => {
@@ -454,5 +485,108 @@ describe('name pickers', () => {
 		expect(
 			fr('setStatus').build!(reader({ shortId: 'FR-42', status: 'Some Custom Status' })).body,
 		).toEqual({ status: 'Some Custom Status' });
+	});
+});
+
+/*
+ * Roadmarq Board > Update (PR #33): PUT /api/roadmarq/v1/boards/{boardId} changes only what the
+ * body carries, and `settings` is merged field by field. So the node sends only the fields the
+ * user set, and a switch set to off is sent as false.
+ */
+describe('Roadmarq Board update', () => {
+	const update = roadmarqBoard.operations.find((o) => o.operation === 'update')!;
+	const BOARD_ID = '57f6a1d2-0000-4000-8000-000000000001';
+	const boards = [
+		{ id: '11111111-0000-4000-8000-000000000000', slug: 'other' },
+		{ id: BOARD_ID, slug: 'feedback' },
+	];
+	const updated = { id: BOARD_ID, slug: 'feedback', settings: { bugApprovalMode: 'none' } };
+	const runUpdate = async (updateFields: Record<string, unknown>) => {
+		const ctx = fakeContext([boards, updated]);
+		const out = await update.run!(ctx, reader({ board: 'feedback', updateFields }));
+
+		return { ctx, out };
+	};
+
+	it('is a workspace-scoped resource with Update, named Roadmarq Board', () => {
+		expect(resources).toContain(roadmarqBoard);
+		expect(roadmarqBoard.workspaceScoped).toBe(true);
+		expect(roadmarqBoard.name).toBe('Roadmarq Board');
+		expect(roadmarqBoard.operations.map((o) => o.operation)).toEqual(['update']);
+		const board = update.fields.find((f) => f.name === 'board');
+		expect(board?.typeOptions?.loadOptionsMethod).toBe('getBoards');
+		expect(board?.required).toBe(true);
+	});
+
+	it("finds the board's UUID by slug, then PUTs only the one setting that was set", async () => {
+		const { ctx, out } = await runUpdate({ bugApprovalMode: 'none' });
+		expect(ctx.calls).toEqual([
+			{ method: 'GET', path: '/api/roadmarq/v1/boards', qs: wsQs },
+			{
+				method: 'PUT',
+				path: `/api/roadmarq/v1/boards/${BOARD_ID}`,
+				qs: wsQs,
+				body: { settings: { bugApprovalMode: 'none' } },
+			},
+		]);
+		expect(out).toEqual([{ json: updated }]);
+	});
+
+	it('sends a switch turned off as false, and leaves the other switches out', async () => {
+		const { ctx } = await runUpdate({ bugReports: false, requireApproval: false });
+		expect(ctx.calls[1].body).toEqual({
+			settings: { bugReportsEnabled: false, requireApproval: false },
+		});
+	});
+
+	it('maps every switch to its board setting', async () => {
+		const { ctx } = await runUpdate({
+			featureRequests: true,
+			bugReports: true,
+			roadmap: false,
+			changelog: true,
+			requireApproval: true,
+			bugApprovalMode: 'anonymous_only',
+		});
+		expect(ctx.calls[1].body).toEqual({
+			settings: {
+				featureRequestsEnabled: true,
+				bugReportsEnabled: true,
+				roadmapEnabled: false,
+				changelogEnabled: true,
+				requireApproval: true,
+				bugApprovalMode: 'anonymous_only',
+			},
+		});
+	});
+
+	it('sends name, description and public at the top level, and no settings when none were set', async () => {
+		const { ctx } = await runUpdate({ name: 'Ideas', description: 'All ideas', isPublic: false });
+		expect(ctx.calls[1].body).toEqual({ name: 'Ideas', description: 'All ideas', isPublic: false });
+	});
+
+	it('refuses an update that sets nothing, before any request', async () => {
+		const ctx = fakeContext([]);
+		await expect(
+			update.run!(ctx, reader({ board: 'feedback', updateFields: {} })),
+		).rejects.toThrow(/at least one field/);
+		expect(ctx.calls).toEqual([]);
+	});
+
+	it('refuses a slug the board list does not have', async () => {
+		const ctx = fakeContext([boards]);
+		await expect(
+			update.run!(ctx, reader({ board: 'nope', updateFields: { bugReports: true } })),
+		).rejects.toThrow(/nope/);
+		expect(ctx.calls).toHaveLength(1);
+	});
+
+	it('offers the three bug approval modes', () => {
+		const fields = update.fields.find((f) => f.name === 'updateFields')?.options as Array<{
+			name: string;
+			options?: Array<{ value: string }>;
+		}>;
+		const mode = fields.find((f) => f.name === 'bugApprovalMode');
+		expect(mode?.options?.map((o) => o.value)).toEqual(['all', 'anonymous_only', 'none']);
 	});
 });

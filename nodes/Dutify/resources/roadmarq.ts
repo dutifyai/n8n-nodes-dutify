@@ -6,10 +6,13 @@ import {
 	idPicker,
 	isSet,
 	jsonField,
+	requireChange,
 	text,
 } from '../../../shared/fieldHelpers';
 import { encodePath } from '../../../shared/transport';
+import { boardIdsSpec } from '../loaders';
 import type {
+	OperationContext,
 	OperationDef,
 	PaginationStyle,
 	ParamReader,
@@ -19,12 +22,16 @@ import type {
 
 /* ---------- shared ---------- */
 
-/** The request list pages from zero and the backend caps a page at 200. */
-const REQUEST_PAGING: PaginationStyle = {
+/**
+ * The request and bug lists page from zero, cap a page at 200, and answer
+ * `{content, pageNumber, pageSize, totalElements, totalPages}`.
+ */
+const LIST_PAGING: PaginationStyle = {
 	kind: 'page',
 	pageParam: 'page',
 	sizeParam: 'size',
 	itemsPath: 'content',
+	totalPagesPath: 'totalPages',
 	zeroBased: true,
 	maxPageSize: 200,
 };
@@ -250,7 +257,7 @@ const requestOperations: OperationDef[] = [
 				method: 'GET',
 				path,
 				qs: { ...wsQs(p), ...pick(filters, ['status', 'category', 'milestone']) },
-				paginate: REQUEST_PAGING,
+				paginate: LIST_PAGING,
 			};
 		},
 	},
@@ -389,6 +396,7 @@ const bugOperations: OperationDef[] = [
 			method: 'GET',
 			path: boardBugs(p),
 			qs: { ...wsQs(p), ...pick(collectionOf(p, 'filters'), ['severity', 'status']) },
+			paginate: LIST_PAGING,
 		}),
 	},
 	{
@@ -568,4 +576,143 @@ export const bug: ResourceDef = {
 	name: 'Bug',
 	workspaceScoped: true,
 	operations: bugOperations,
+};
+
+/* ---------- boards ---------- */
+
+/** Board switches: the node's field name, its label, its board setting and what it does. */
+const BOARD_SWITCHES: Array<[string, string, string, string]> = [
+	[
+		'featureRequests',
+		'Feature Requests',
+		'featureRequestsEnabled',
+		'Whether the board takes feature requests',
+	],
+	['bugReports', 'Bug Reports', 'bugReportsEnabled', 'Whether the board takes bug reports'],
+	['roadmap', 'Roadmap', 'roadmapEnabled', 'Whether the board shows its roadmap'],
+	['changelog', 'Changelog', 'changelogEnabled', 'Whether the board shows its changelog'],
+	[
+		'requireApproval',
+		'Require Approval for Feature Requests',
+		'requireApproval',
+		'Whether a new feature request waits for approval (Feature Request > Moderate) before it is listed',
+	],
+];
+
+const boardSwitch = ([name, label, , description]: [
+	string,
+	string,
+	string,
+	string,
+]): INodeProperties => ({
+	displayName: label,
+	name,
+	type: 'boolean',
+	default: false,
+	description,
+});
+
+const bugApprovalModes: INodePropertyOptions[] = [
+	{
+		name: 'All',
+		value: 'all',
+		description: 'Every new bug waits for approval (the default)',
+	},
+	{
+		name: 'Anonymous Only',
+		value: 'anonymous_only',
+		description: 'Bugs from signed-in members are listed at once; anonymous ones wait',
+	},
+	{ name: 'None', value: 'none', description: 'Every new bug is listed at once' },
+];
+
+/** The board's UUID, which PUT /boards/{boardId} takes, from its slug. */
+async function boardIdOf(ctx: OperationContext, p: ParamReader): Promise<string> {
+	const slug = str(p, 'board');
+	const boards = (await ctx.request(boardIdsSpec(p.workspace))) as Array<{
+		id?: string;
+		slug?: string;
+	}> | null;
+	const id = (Array.isArray(boards) ? boards : []).find((b) => b.slug === slug)?.id;
+	if (!id) {
+		throw new ApplicationError(`The workspace has no feedback board "${slug}" that you can see`);
+	}
+
+	return id;
+}
+
+/**
+ * The update body: only the fields the user set. Roadmarq merges `settings` field by field, so a
+ * setting left out keeps its value, and a switch turned off is sent as false.
+ */
+function boardUpdateBody(fields: IDataObject): IDataObject {
+	const body = pick(fields, ['name', 'description', 'isPublic']);
+	const settings: IDataObject = {};
+	for (const [name, , setting] of BOARD_SWITCHES) {
+		if (typeof fields[name] === 'boolean') {
+			settings[setting] = fields[name];
+		}
+	}
+	if (isSet(fields.bugApprovalMode)) {
+		settings.bugApprovalMode = fields.bugApprovalMode;
+	}
+	if (Object.keys(settings).length > 0) {
+		body.settings = settings;
+	}
+
+	return requireChange(body);
+}
+
+const boardOperations: OperationDef[] = [
+	{
+		operation: 'update',
+		name: 'Update',
+		action: 'Update a feedback board',
+		description:
+			"Change a board's name, visibility or settings, such as whether it takes bug reports and which new bugs wait for approval. Only the fields you set change (needs Manage Settings)",
+		fields: [
+			boardField(),
+			collection('Update Fields', 'updateFields', [
+				{
+					displayName: 'Bug Approval',
+					name: 'bugApprovalMode',
+					type: 'options',
+					options: bugApprovalModes,
+					default: 'all',
+					description:
+						'Which new bug reports wait for approval (Bug > Moderate) before they are listed',
+				},
+				...BOARD_SWITCHES.map(boardSwitch),
+				text('Description', 'description', 'Description of the board'),
+				text('Name', 'name', 'Name of the board'),
+				{
+					displayName: 'Public',
+					name: 'isPublic',
+					type: 'boolean',
+					default: false,
+					description: 'Whether the board is visible to people outside the workspace',
+				},
+			]),
+		],
+		run: async (ctx, p) => {
+			const body = boardUpdateBody(collectionOf(p, 'updateFields'));
+			const id = await boardIdOf(ctx, p);
+			const response = await ctx.request({
+				method: 'PUT',
+				path: encodePath`/api/roadmarq/v1/boards/${id}`,
+				qs: wsQs(p),
+				body,
+			});
+
+			return [{ json: (response ?? { success: true }) as IDataObject }];
+		},
+	},
+];
+
+/** Roadmarq feedback boards, addressed by slug. */
+export const roadmarqBoard: ResourceDef = {
+	value: 'roadmarqBoard',
+	name: 'Roadmarq Board',
+	workspaceScoped: true,
+	operations: boardOperations,
 };

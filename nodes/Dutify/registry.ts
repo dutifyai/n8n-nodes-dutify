@@ -24,7 +24,7 @@ import { call, lens, recording } from './resources/hub';
 import { calendarEvent } from './resources/hubCalendar';
 import { hubIntegration, hubWorkspace } from './resources/hubWorkspace';
 import { meetingWebhook } from './resources/meetingWebhook';
-import { bug, featureRequest } from './resources/roadmarq';
+import { bug, featureRequest, roadmarqBoard } from './resources/roadmarq';
 import { view } from './resources/view';
 import { account, workspace } from './resources/workspace';
 import type { OperationContext, OperationDef, ParamReader, ResourceDef } from '../../shared/types';
@@ -60,6 +60,7 @@ export const resources: ResourceDef[] = [
 	codexumAttachment,
 	featureRequest,
 	bug,
+	roadmarqBoard,
 	call,
 	recording,
 	lens,

@@ -1,5 +1,6 @@
 import type { NodeApiError } from 'n8n-workflow';
 import { afterAll, beforeAll, expect, it } from 'vitest';
+import { dutifyErrorOf } from '../../shared/transport';
 import {
 	cleanupStack,
 	live,
@@ -13,8 +14,12 @@ import {
 } from './harness';
 
 /*
- * The node has no board operations, so the board is created and deleted with the Roadmarq board
- * endpoints directly (POST / DELETE /api/roadmarq/v1/boards). Everything else goes through the node.
+ * The node cannot create or delete a board, so the board is created and deleted with the Roadmarq
+ * board endpoints directly (POST / DELETE /api/roadmarq/v1/boards). Everything else goes through
+ * the node, including Roadmarq Board > Update.
+ *
+ * Board > Update (settings merged field by field), the paged bug list and the JSON errors are
+ * Roadmarq PR #33 (chatgpttests/roadmarq-backend).
  */
 /** Cleanup for one request or bug; a 404 means a test already deleted it. */
 const deleteItem = (resource: 'featureRequest' | 'bug', shortId: string) => async () => {
@@ -238,6 +243,102 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 		expect(created).toMatchObject({ security: true, public: false, severity: 'Critical' });
 	});
 
+	it('board update changes only the setting it sends: other switches keep their value', async () => {
+		const updated = await runOne('roadmarqBoard', 'update', {
+			board,
+			updateFields: { bugApprovalMode: 'none' },
+		});
+		expect(updated).toMatchObject({
+			slug: board,
+			settings: { bugApprovalMode: 'none', bugReportsEnabled: true, featureRequestsEnabled: true },
+		});
+
+		// With approval None, a new bug is listed at once, without Bug > Moderate.
+		const created = await runOne('bug', 'create', { board, title: `Live listed bug ${runId}` });
+		const shortId = String(created.shortId);
+		cleanup.add(`bug ${shortId}`, deleteItem('bug', shortId));
+		expect((await run('bug', 'list', { board, returnAll: true })).map((b) => b.shortId)).toContain(
+			shortId,
+		);
+	});
+
+	it('board update turns a switch off, and on again', async () => {
+		const off = await runOne('roadmarqBoard', 'update', {
+			board,
+			updateFields: { bugReports: false },
+		});
+		expect(off).toMatchObject({
+			settings: { bugReportsEnabled: false, bugApprovalMode: 'none', featureRequestsEnabled: true },
+		});
+		const refused = await runError('bug', 'create', { board, title: `Live refused bug ${runId}` });
+		expect(refused.httpCode).toBe('400');
+		expect(refused.message).toMatch(/bug reports are not/i);
+
+		const on = await runOne('roadmarqBoard', 'update', {
+			board,
+			updateFields: { bugReports: true },
+		});
+		expect(on).toMatchObject({ settings: { bugReportsEnabled: true, bugApprovalMode: 'none' } });
+	});
+
+	it('bug list pages: page/size answer the envelope, Limit stops early, Return All gets every bug', async () => {
+		// Approval is None now (see above), so these are listed at once.
+		for (const n of [1, 2]) {
+			const created = await runOne('bug', 'create', { board, title: `Live paged bug ${n} ${runId}` });
+			cleanup.add(`bug ${String(created.shortId)}`, deleteItem('bug', String(created.shortId)));
+		}
+		const page = (await rawRequest({
+			method: 'GET',
+			path: `/api/roadmarq/v1/boards/${board}/bugs/lite`,
+			qs: { workspaceIdentifier: live.workspace, page: 0, size: 1 },
+		})) as { content: unknown[]; pageNumber: number; pageSize: number; totalElements: number; totalPages: number };
+		expect(page.content).toHaveLength(1);
+		expect(page).toMatchObject({ pageNumber: 0, pageSize: 1 });
+		expect(page.totalElements).toBeGreaterThanOrEqual(3);
+		expect(page.totalPages).toBe(page.totalElements);
+
+		const all = await run('bug', 'list', { board, returnAll: true });
+		expect(all).toHaveLength(page.totalElements);
+		expect(new Set(all.map((b) => b.shortId)).size).toBe(all.length);
+		expect(await run('bug', 'list', { board, returnAll: false, limit: 2 })).toHaveLength(2);
+	});
+
+	it('a second board on FREE answers 402 PLAN_LIMIT_REACHED as JSON', async () => {
+		const slug = `n8n-live-2-${runId}`;
+		const error = await rawRequest({
+			method: 'POST',
+			path: '/api/roadmarq/v1/boards',
+			body: {
+				workspaceIdentifier: live.workspace,
+				name: `n8n live 2 ${runId}`,
+				slug,
+				featureRequestKey: 'NFS',
+				bugReportKey: 'NBS',
+				isPublic: false,
+			},
+		}).then(
+			(created) => {
+				// Not expected on FREE; delete it so the workspace stays clean.
+				cleanup.add(`board ${slug}`, async () =>
+					rawRequest({
+						method: 'DELETE',
+						path: `/api/roadmarq/v1/boards/${String((created as { id: string }).id)}`,
+						qs: { workspaceIdentifier: live.workspace },
+					}),
+				);
+
+				return undefined;
+			},
+			(failure: unknown) => failure,
+		);
+		expect(error).toBeDefined();
+		expect(dutifyErrorOf(error)).toEqual({
+			httpCode: '402',
+			message: expect.stringMatching(/plan limit reached: feedback boards/i),
+			code: 'PLAN_LIMIT_REACHED',
+		});
+	});
+
 	it('delete removes the request and the bug (get then answers 404)', async () => {
 		await runOne('bug', 'delete', { shortId: bugId });
 		expect((await runError('bug', 'get', { shortId: bugId })).httpCode).toBe('404');
@@ -246,6 +347,16 @@ liveDescribe('Roadmarq feature request and bug — live', () => {
 	});
 
 	it('an unknown short ID answers 404 as the catalog says', async () => {
-		expect((await runError('featureRequest', 'get', { shortId: 'NFR-999999' })).httpCode).toBe('404');
+		const error = await runError('featureRequest', 'get', { shortId: 'NFR-999999' });
+		expect(error.httpCode).toBe('404');
+		expect(dutifyErrorOf(error).code).toBe('NOT_FOUND');
+	});
+
+	it('board update of a board the workspace does not have is refused before any change', async () => {
+		const error = await runError('roadmarqBoard', 'update', {
+			board: `no-such-board-${runId}`,
+			updateFields: { bugReports: true },
+		});
+		expect(error.message).toContain(`no-such-board-${runId}`);
 	});
 });
