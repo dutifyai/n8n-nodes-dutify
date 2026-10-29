@@ -233,6 +233,30 @@ describe('executeOperation', () => {
 		expect(out[0].json.httpCode).toBe('400');
 	});
 
+	it('puts errorCode on a continueOnFail error item, so a workflow can branch on it', async () => {
+		const { self } = stubThis({
+			continueOnFail: true,
+			items: [{ resource: 'thing', operation: 'get', workspace: 'ws-1', thingId: 't1' }],
+			responses: [
+				{
+					httpCode: '402',
+					response: {
+						body: {
+							message: 'This workspace has used up its AI Coworker usage.',
+							errorCode: 'AI_COWORKER_USAGE_EXHAUSTED',
+						},
+					},
+				},
+			],
+		});
+		const [out] = await executeOperation.call(self as never, resources);
+		expect(out[0].json).toMatchObject({
+			error: expect.stringContaining('used up its AI Coworker usage'),
+			errorCode: 'AI_COWORKER_USAGE_EXHAUSTED',
+			httpCode: '402',
+		});
+	});
+
 	it('omits empty description and httpCode from a continueOnFail error item', async () => {
 		const { self } = stubThis({
 			continueOnFail: true,

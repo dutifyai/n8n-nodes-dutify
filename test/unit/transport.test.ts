@@ -1,7 +1,13 @@
 import type { INode } from 'n8n-workflow';
 import { NodeApiError } from 'n8n-workflow';
 import { describe, expect, it, vi } from 'vitest';
-import { buildHttpOptions, dutifyRequest, encodePath, toNodeError } from '../../shared/transport';
+import {
+	buildHttpOptions,
+	dutifyErrorOf,
+	dutifyRequest,
+	encodePath,
+	toNodeError,
+} from '../../shared/transport';
 
 const node: INode = {
 	id: 'n1',
@@ -174,7 +180,7 @@ describe('toNodeError', () => {
 		expect(err.httpCode).toBe('404');
 	});
 
-	it('shows a plain-text error body as the message (Hub answers "No such webhook", not JSON)', () => {
+	it('still shows a plain-text error body as the message (older Hub and Roadmarq versions)', () => {
 		const axiosLike = Object.assign(new Error('Request failed with status code 400'), {
 			response: {
 				status: 400,
@@ -211,6 +217,113 @@ describe('toNodeError', () => {
 		const err = toNodeError(node, wrapped);
 		expect(err.message).toContain('Unknown status');
 		expect(err.description).toContain('Open');
+	});
+});
+
+describe('buildHttpOptions full response', () => {
+	it('asks for the full response (headers) only when the spec says so', () => {
+		const base = { method: 'GET' as const, path: '/api/wiki/v1/x' };
+		expect(
+			buildHttpOptions('https://dutify.ai', { ...base, fullResponse: true }, '').returnFullResponse,
+		).toBe(true);
+		expect(buildHttpOptions('https://dutify.ai', base, '')).not.toHaveProperty('returnFullResponse');
+	});
+});
+
+/*
+ * The JSON error shape Hub (PR #393) and Roadmarq (PR #33) answer: {message, errorCode}, plus
+ * `code` (the same value) and `details` on some answers. Taken from the PRs' contract tests.
+ */
+describe('toNodeError with the Hub and Roadmarq JSON errors', () => {
+	const axiosError = (status: number, data: unknown) =>
+		Object.assign(new Error(`Request failed with status code ${status}`), {
+			response: { status, data },
+		});
+
+	it('shows a Hub {message, errorCode} body: the message, and the code in the description', () => {
+		const err = toNodeError(
+			node,
+			axiosError(404, { message: 'No such webhook', errorCode: 'NOT_FOUND' }),
+		);
+		expect(err.message).toBe('No such webhook');
+		expect(err.description).toBe('Code: NOT_FOUND');
+		expect(err.httpCode).toBe('404');
+		expect(dutifyErrorOf(err)).toEqual({
+			httpCode: '404',
+			message: 'No such webhook',
+			code: 'NOT_FOUND',
+		});
+	});
+
+	it('shows the AI Coworker 402 with its errorCode', () => {
+		const err = toNodeError(
+			node,
+			axiosError(402, {
+				message:
+					'This workspace has used up its AI Coworker usage. A workspace owner can add more at https://dutify.ai/workspace-settings',
+				errorCode: 'AI_COWORKER_USAGE_EXHAUSTED',
+			}),
+		);
+		expect(err.message).toMatch(/^This workspace has used up its AI Coworker usage\./);
+		expect(err.description).toBe('Code: AI_COWORKER_USAGE_EXHAUSTED');
+		expect(dutifyErrorOf(err).code).toBe('AI_COWORKER_USAGE_EXHAUSTED');
+	});
+
+	it('reads errorCode before code, and the message of an RFC 7807 problem', () => {
+		// Hub's problem answers keep title/status/detail, add message and a string errorCode, and
+		// move the old integer errorCode to internalErrorCode.
+		const err = toNodeError(
+			node,
+			axiosError(404, {
+				title: 'Not Found',
+				status: 404,
+				detail: 'HTTP 404 Not Found',
+				message: 'HTTP 404 Not Found',
+				errorCode: 'NOT_FOUND',
+				internalErrorCode: 4004,
+			}),
+		);
+		expect(err.message).toBe('HTTP 404 Not Found');
+		expect(err.description).toBe('Code: NOT_FOUND');
+		const both = dutifyErrorOf(
+			axiosError(409, { code: 'LEGACY', errorCode: 'WORKFLOW_IN_PROGRESS', message: 'Busy' }),
+		);
+		expect(both.code).toBe('WORKFLOW_IN_PROGRESS');
+	});
+
+	it('still reads the older shapes: code only, error only, and an integer errorCode', () => {
+		expect(
+			dutifyErrorOf(axiosError(403, { code: 'WORKSPACE_OUT_OF_SCOPE', error: 'Not yours' })),
+		).toEqual({ httpCode: '403', message: 'Not yours', code: 'WORKSPACE_OUT_OF_SCOPE' });
+		const problem = toNodeError(
+			node,
+			axiosError(404, { title: 'Not Found', status: 404, detail: 'Gone', errorCode: 4004 }),
+		);
+		expect(problem.message).toBe('Gone');
+		expect(problem.description).toBe('Code: 4004');
+	});
+
+	it('shows a Roadmarq 402 PLAN_LIMIT_REACHED and a 400 with details.field', () => {
+		const limit = toNodeError(
+			node,
+			axiosError(402, {
+				message: 'FREE plan limit reached: feedback boards (1/1)',
+				errorCode: 'PLAN_LIMIT_REACHED',
+				code: 'PLAN_LIMIT_REACHED',
+			}),
+		);
+		expect(limit.message).toBe('FREE plan limit reached: feedback boards (1/1)');
+		expect(limit.description).toBe('Code: PLAN_LIMIT_REACHED');
+		const bad = toNodeError(
+			node,
+			axiosError(400, {
+				message: 'Wrong type',
+				errorCode: 'BAD_REQUEST',
+				code: 'BAD_REQUEST',
+				details: { field: 'settings.bugReportsEnabled' },
+			}),
+		);
+		expect(bad.description).toBe('Code: BAD_REQUEST. Field: settings.bugReportsEnabled');
 	});
 });
 

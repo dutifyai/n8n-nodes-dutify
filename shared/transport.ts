@@ -71,6 +71,9 @@ export function buildHttpOptions(
 	if (spec.timeout !== undefined) {
 		options.timeout = spec.timeout;
 	}
+	if (spec.fullResponse) {
+		options.returnFullResponse = true;
+	}
 
 	return options;
 }
@@ -95,8 +98,9 @@ function asObject(value: unknown): Record<string, unknown> | undefined {
 const MAX_TEXT_MESSAGE = 500;
 
 /**
- * A plain-text error body (Hub answers `No such webhook`, not JSON) as `{ message }`. HTML pages
- * (a proxy's 502) and long dumps are left out.
+ * A plain-text error body as `{ message }`. Dutify answers JSON errors (`{message, errorCode}`);
+ * Hub and Roadmarq versions before that answered some errors as bare text, and a proxy can still
+ * answer text. HTML pages (a proxy's 502) and long dumps are left out.
  */
 function plainText(value: unknown): Record<string, unknown> | undefined {
 	if (typeof value !== 'string') {
@@ -147,9 +151,24 @@ function text(value: unknown): string | undefined {
 	return typeof value === 'string' && value.trim() !== '' ? value : undefined;
 }
 
+const present = (value: unknown) => value !== undefined && value !== null && value !== '';
+
 /**
- * The HTTP status, Dutify's own `message` and its error code (`code` or PM's `errorCode`) of a
- * request failure, raw or already wrapped by `dutifyRequest`.
+ * The error code of a Dutify error body. Every product answers `errorCode`; Hub and Roadmarq also
+ * repeat it as `code`, and older answers have only `code`. A string wins over a number (the
+ * integer `errorCode` of an older Hub problem answer).
+ */
+function codeOf(body: Record<string, unknown>): unknown {
+	const candidates = [body.errorCode, body.code];
+
+	return (
+		candidates.find((c) => typeof c === 'string' && c !== '') ?? candidates.find((c) => present(c))
+	);
+}
+
+/**
+ * The HTTP status, Dutify's own `message` and its `errorCode` (or the older `code`) of a request
+ * failure, raw or already wrapped by `dutifyRequest`.
  */
 export function dutifyErrorOf(error: unknown): {
 	httpCode?: string;
@@ -161,7 +180,7 @@ export function dutifyErrorOf(error: unknown): {
 	const body =
 		found.body ?? (error instanceof NodeApiError ? asObject(error.errorResponse) : undefined);
 	const httpCode = found.httpCode;
-	const code = body?.code ?? body?.errorCode;
+	const code = body ? codeOf(body) : undefined;
 
 	return {
 		httpCode,
@@ -187,17 +206,17 @@ export function toNodeError(node: INode, error: unknown): NodeApiError {
 	}
 
 	const message = text(body.message) ?? text(body.error) ?? text(body.detail) ?? text(body.title);
-	// PM answers `{message, errorCode, details: {field, validOptions}}`; other services put
-	// `code`, `field` and `validOptions` at the top level.
+	// Dutify answers `{message, errorCode, details: {field, validOptions}}`; Roadmarq and older
+	// answers also put `code`, `field` and `validOptions` at the top level.
 	const details = asObject(body.details) ?? {};
-	const code = body.code ?? body.errorCode;
+	const code = codeOf(body);
 	const field = body.field ?? details.field;
 	const validOptions = body.validOptions ?? details.validOptions;
 	const parts: string[] = [];
-	if (code !== undefined && code !== null && code !== '') {
+	if (present(code)) {
 		parts.push(`Code: ${String(code)}`);
 	}
-	if (field !== undefined && field !== null && field !== '') {
+	if (present(field)) {
 		parts.push(`Field: ${String(field)}`);
 	}
 	if (Array.isArray(validOptions) && validOptions.length > 0) {

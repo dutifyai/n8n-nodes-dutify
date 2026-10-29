@@ -23,6 +23,11 @@ export interface RequestSpec {
 	contentType?: string;
 	/** Request timeout in milliseconds, for slow endpoints such as Lens. Omitted: the HTTP client default. */
 	timeout?: number;
+	/**
+	 * Return `{ body, headers, statusCode }` instead of the body, for lists that page by response
+	 * header (Codexum's `X-Next-Offset`). Header names come lower-cased.
+	 */
+	fullResponse?: boolean;
 	/** Present only on list operations. */
 	paginate?: PaginationStyle;
 }
@@ -40,9 +45,25 @@ export type PaginationStyle =
 			kind: 'page';
 			pageParam: string;
 			sizeParam: string;
-			/** Dotted path to the items array; omitted when the response itself is the array. */
+			/**
+			 * Dotted path to the items array; omitted when the response itself is the array. A
+			 * response that is an array anyway (a backend without paging) is taken as the items.
+			 */
 			itemsPath?: string;
+			/** Dotted path to the page count; the walk ends on the last page without asking for more. */
+			totalPagesPath?: string;
 			zeroBased: boolean;
+			maxPageSize: number;
+	  }
+	| {
+			/**
+			 * Offset paging that a response header drives: the body is the items array, and the
+			 * header names the next offset while more items remain. No header ends the walk.
+			 */
+			kind: 'offset';
+			offsetParam: string;
+			limitParam: string;
+			nextOffsetHeader: string;
 			maxPageSize: number;
 	  };
 

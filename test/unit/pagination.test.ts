@@ -162,3 +162,119 @@ describe('requestAllPages', () => {
 		expect(ctx.calls).toHaveLength(1);
 	});
 });
+
+/*
+ * Codexum's page list (PR #44): a bare array body, `X-Total-Count`, and `X-Next-Offset` while
+ * more pages remain; the header is absent on the last request.
+ */
+describe('requestAllPages, offset style with a next-offset header', () => {
+	const offset: PaginationStyle = {
+		kind: 'offset',
+		offsetParam: 'offset',
+		limitParam: 'limit',
+		nextOffsetHeader: 'X-Next-Offset',
+		maxPageSize: 500,
+	};
+	const spec = {
+		method: 'GET' as const,
+		path: '/pages/lite',
+		qs: { parent: 'p' },
+		paginate: offset,
+	};
+	const rows = (from: number, count: number) =>
+		Array.from({ length: count }, (_, i) => ({ slug: `p-${from + i}` }));
+	/** n8n lower-cases response header names. */
+	const answer = (items: unknown[], next?: number) => ({
+		body: items,
+		headers: next === undefined ? { 'x-total-count': '1100' } : { 'x-next-offset': String(next) },
+		statusCode: 200,
+	});
+
+	it('follows X-Next-Offset until it is gone, asking for the full response', async () => {
+		const ctx = fakeContext([
+			answer(rows(0, 500), 500),
+			answer(rows(500, 500), 1000),
+			answer(rows(1000, 100)),
+		]);
+		const all = await ctx.requestAll(spec);
+		expect(all).toHaveLength(1100);
+		expect(all[1099]).toEqual({ slug: 'p-1099' });
+		expect(ctx.calls.map((c) => c.qs)).toEqual([
+			{ parent: 'p', limit: 500 },
+			{ parent: 'p', limit: 500, offset: 500 },
+			{ parent: 'p', limit: 500, offset: 1000 },
+		]);
+		expect(ctx.calls.every((c) => c.fullResponse === true)).toBe(true);
+	});
+
+	it('respects Limit: asks for no more than is left and stops there', async () => {
+		const ctx = fakeContext([answer(rows(0, 30), 30)]);
+		expect(await ctx.requestAll(spec, 30)).toHaveLength(30);
+		expect(ctx.calls.map((c) => c.qs)).toEqual([{ parent: 'p', limit: 30 }]);
+
+		const twoPages = fakeContext([answer(rows(0, 500), 500), answer(rows(500, 200), 700)]);
+		expect(await twoPages.requestAll(spec, 700)).toHaveLength(700);
+		expect(twoPages.calls.map((c) => c.qs)).toEqual([
+			{ parent: 'p', limit: 500 },
+			{ parent: 'p', limit: 200, offset: 500 },
+		]);
+	});
+
+	it('stops after one request when the header is absent (a Codexum without paging)', async () => {
+		const ctx = fakeContext([{ body: rows(0, 500), headers: {}, statusCode: 200 }]);
+		expect(await ctx.requestAll(spec)).toHaveLength(500);
+		expect(ctx.calls).toHaveLength(1);
+	});
+
+	it('reads the header in any case, and stops on a header that does not move forward', async () => {
+		const ctx = fakeContext([
+			{ body: rows(0, 2), headers: { 'X-Next-Offset': '2' } },
+			{ body: rows(2, 2), headers: { 'X-Next-Offset': '2' } },
+		]);
+		expect(await ctx.requestAll(spec)).toHaveLength(4);
+		expect(ctx.calls).toHaveLength(2);
+	});
+
+	it('stops on an empty page even when a header is sent', async () => {
+		const ctx = fakeContext([answer([], 500)]);
+		expect(await ctx.requestAll(spec)).toEqual([]);
+		expect(ctx.calls).toHaveLength(1);
+	});
+});
+
+/*
+ * Roadmarq's bug list (PR #33): with page/size it answers the {content, pageNumber, totalPages}
+ * envelope; without paging support it answers the plain array of every bug.
+ */
+describe('collectAll, page style with an envelope and a plain-array fallback', () => {
+	const enveloped: PaginationStyle = {
+		kind: 'page',
+		pageParam: 'page',
+		sizeParam: 'size',
+		itemsPath: 'content',
+		totalPagesPath: 'totalPages',
+		zeroBased: true,
+		maxPageSize: 2,
+	};
+
+	it('stops at the last page by totalPages, without an extra empty request', async () => {
+		const { calls, fetchPage } = pager([
+			{ content: [1, 2], pageNumber: 0, totalPages: 2 },
+			{ content: [3, 4], pageNumber: 1, totalPages: 2 },
+		]);
+		expect(await collectAll(fetchPage, enveloped)).toEqual([1, 2, 3, 4]);
+		expect(calls).toEqual([
+			{ page: 0, size: 2 },
+			{ page: 1, size: 2 },
+		]);
+	});
+
+	it('takes a plain array answer as the items (a backend that ignores page and size)', async () => {
+		const { calls, fetchPage } = pager([
+			[1, 2, 3],
+			[1, 2, 3],
+		]);
+		expect(await collectAll(fetchPage, enveloped)).toEqual([1, 2, 3]);
+		expect(calls).toHaveLength(2);
+	});
+});

@@ -9,7 +9,7 @@ import type {
 import { ApplicationError, BINARY_ENCODING, NodeApiError, NodeOperationError } from 'n8n-workflow';
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
-import { dutifyRequest } from '../../shared/transport';
+import { dutifyErrorOf, dutifyRequest } from '../../shared/transport';
 import { importJob, invitation, member, team } from './resources/admin';
 import { automation } from './resources/automation';
 import { codexumPage, codexumSpace } from './resources/codexum';
@@ -169,7 +169,11 @@ function asNodeError(node: INode, error: unknown, itemIndex: number) {
 	return new NodeOperationError(node, error as Error, { itemIndex });
 }
 
-/** `{error, description?, httpCode?}` for Continue On Fail; empty fields are left out. */
+/**
+ * `{error, description?, httpCode?, errorCode?}` for Continue On Fail; empty fields are left out.
+ * `errorCode` is Dutify's own code (e.g. `NOT_FOUND`, `AI_COWORKER_USAGE_EXHAUSTED`), for a
+ * workflow to branch on.
+ */
 function errorItem(error: unknown): IDataObject {
 	const item: IDataObject = { error: (error as Error).message ?? String(error) };
 	if (error instanceof NodeApiError) {
@@ -178,6 +182,10 @@ function errorItem(error: unknown): IDataObject {
 		}
 		if (error.httpCode) {
 			item.httpCode = error.httpCode;
+		}
+		const { code } = dutifyErrorOf(error);
+		if (code) {
+			item.errorCode = code;
 		}
 	}
 
