@@ -23,7 +23,7 @@ import type { ParamReader, RequestSpec } from '../../shared/types';
 import { listSearch, loadOptions } from '../Dutify/loaders';
 import { DEFAULT_MEETING_SECTIONS, sectionsField } from '../Dutify/resources/meetingWebhook';
 import { scopeBody, scopeFields } from '../Dutify/resources/pmWebhook';
-import { sources, verifySignature } from './sources';
+import { isWebhookPing, sources, verifySignature } from './sources';
 import type { ListedWebhook, WebhookSource } from './sources';
 
 /**
@@ -628,11 +628,16 @@ export class DutifyTrigger implements INodeType {
 		},
 	};
 
-	/** A delivery without a valid signature gets a 401 and does not start the workflow. */
+	/**
+	 * A delivery without a valid signature gets a 401 and does not start the workflow. A signed
+	 * `webhook-ping` (Dutify Cloud checking a paused webhook before it resumes it) gets a 200 and
+	 * does not start the workflow either.
+	 */
 	async webhook(this: IWebhookFunctions): Promise<IWebhookResponseData> {
 		const source = sourceOf(this);
 		const stored = this.getWorkflowStaticData('node') as StoredWebhook;
-		const header = this.getHeaderData()[source.signatureHeader];
+		const headers = this.getHeaderData() as Record<string, string | string[] | undefined>;
+		const header = headers[source.signatureHeader];
 		const signature = Array.isArray(header) ? header[0] : header;
 		const req = this.getRequestObject();
 		if (req.rawBody === undefined) {
@@ -645,6 +650,13 @@ export class DutifyTrigger implements INodeType {
 			return { noWebhookResponse: true };
 		}
 
-		return { workflowData: [[{ json: this.getBodyData() }]] };
+		const body = this.getBodyData();
+		if (isWebhookPing(headers, body)) {
+			this.getResponseObject().status(200).json({ ok: true });
+
+			return { noWebhookResponse: true };
+		}
+
+		return { workflowData: [[{ json: body }]] };
 	}
 }

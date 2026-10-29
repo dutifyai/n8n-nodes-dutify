@@ -9,7 +9,7 @@ import type {
 import { NodeApiError } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import { DutifyTrigger } from '../../nodes/DutifyTrigger/DutifyTrigger.node';
-import { sources, verifySignature } from '../../nodes/DutifyTrigger/sources';
+import { isWebhookPing, sources, verifySignature } from '../../nodes/DutifyTrigger/sources';
 import { PM_EVENT_TYPES } from '../../shared/pmEvents';
 import packageJson from '../../package.json';
 import { conformanceFixture } from './conformanceFixture';
@@ -1675,6 +1675,116 @@ describe('webhook()', () => {
 		const result = await trigger.webhook.call(ctx);
 		expect(result.workflowData).toBeUndefined();
 		expect(response.statusCode).toBe(401);
+	});
+});
+
+/* ---------- webhook-ping (Dutify Cloud probes a paused webhook before resuming it) ---------- */
+
+describe('isWebhookPing', () => {
+	it('recognises the webhook-ping event type in the header or in the signed body', () => {
+		expect(isWebhookPing({ 'x-webhook-event': 'webhook-ping' }, {})).toBe(true);
+		expect(isWebhookPing({}, { type: 'webhook-ping' })).toBe(true);
+		expect(isWebhookPing({ 'x-webhook-event': 'webhook-ping' }, { type: 'webhook-ping' })).toBe(
+			true,
+		);
+	});
+
+	it('does not take a real event for a ping', () => {
+		expect(isWebhookPing({ 'x-webhook-event': 'task-created' }, { type: 'task-created' })).toBe(
+			false,
+		);
+		expect(isWebhookPing({}, {})).toBe(false);
+	});
+
+	it('trusts the signed body over the unsigned header', () => {
+		expect(isWebhookPing({ 'x-webhook-event': 'webhook-ping' }, { type: 'task-created' })).toBe(
+			false,
+		);
+	});
+});
+
+describe('webhook() answering a webhook-ping', () => {
+	const secret = 'e'.repeat(64);
+	const body = {
+		version: '1',
+		id: 'whd_ping',
+		type: 'webhook-ping',
+		timestamp: '2026-10-29T10:00:00Z',
+		workspaceIdentifier: 'ws-1',
+		data: {},
+	};
+	const raw = Buffer.from(JSON.stringify(body));
+	const pingHeaders = {
+		'x-webhook-signature-256': sign(secret, raw),
+		'x-webhook-event': 'webhook-ping',
+		'x-webhook-delivery': 'whd_ping',
+	};
+
+	it('a signed ping answers 200 and does not start the workflow', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: raw,
+			headers: pingHeaders,
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toBeUndefined();
+		expect(result.noWebhookResponse).toBe(true);
+		expect(response.statusCode).toBe(200);
+		expect(response.ended).toBe(true);
+	});
+
+	it('a signed ping known only from its body answers 200 and does not start the workflow', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: raw,
+			headers: { 'x-webhook-signature-256': sign(secret, raw) },
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toBeUndefined();
+		expect(response.statusCode).toBe(200);
+	});
+
+	it('an unsigned ping answers 401', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: raw,
+			headers: { 'x-webhook-event': 'webhook-ping' },
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toBeUndefined();
+		expect(response.statusCode).toBe(401);
+	});
+
+	it('a ping signed with another secret answers 401', async () => {
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: raw,
+			headers: { ...pingHeaders, 'x-webhook-signature-256': sign('other', raw) },
+			body,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toBeUndefined();
+		expect(response.statusCode).toBe(401);
+	});
+
+	it('a signed event with a ping header but an event body still starts the workflow', async () => {
+		const event = { ...body, id: 'whd_2', type: 'task-created', data: { identifier: 'tsk_1' } };
+		const eventRaw = Buffer.from(JSON.stringify(event));
+		const { ctx, response } = webhookContext({
+			staticData: { webhookId: 'whk_1', secret },
+			rawBody: eventRaw,
+			headers: {
+				'x-webhook-signature-256': sign(secret, eventRaw),
+				'x-webhook-event': 'webhook-ping',
+			},
+			body: event,
+		});
+		const result = await trigger.webhook.call(ctx);
+		expect(result.workflowData).toEqual([[{ json: event }]]);
+		expect(response.statusCode).toBe(200);
 	});
 });
 

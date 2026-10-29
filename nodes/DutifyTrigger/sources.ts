@@ -203,6 +203,31 @@ export const sources: Record<string, WebhookSource> = {
 	roadmarq: pm,
 };
 
+/** The event type of the probe Dutify Cloud sends to a webhook it paused, before resuming it. */
+export const WEBHOOK_PING = 'webhook-ping';
+
+/** Lowercase, as n8n hands over request headers. */
+const EVENT_HEADER = 'x-webhook-event';
+
+/**
+ * Whether a delivery is Dutify Cloud's `webhook-ping` probe rather than an event. The signed body's
+ * `type` decides; the unsigned `X-Webhook-Event` header counts only when the body has no type.
+ * Call it only after the signature check. This is the one place that knows how a ping looks.
+ */
+export function isWebhookPing(
+	headers: Record<string, string | string[] | undefined>,
+	body: IDataObject | undefined,
+): boolean {
+	const type = body?.type;
+	if (typeof type === 'string' && type !== '') {
+		return type === WEBHOOK_PING;
+	}
+	const header = headers[EVENT_HEADER];
+	const event = Array.isArray(header) ? header[0] : header;
+
+	return event === WEBHOOK_PING;
+}
+
 const SIGNATURE_PREFIX = 'sha256=';
 
 /**

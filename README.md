@@ -124,7 +124,8 @@ trigger: only a workspace admin signed in to Dutify can opt a webhook in to them
    the raw body with that secret). A delivery that fails the check is answered with 401 and
    does not start the workflow. Dutify signs no timestamp, so the check cannot reject a replayed
    delivery; a meeting delivery carries `X-Dutify-Delivery-Id` (the same on a retry) if your
-   workflow needs to drop duplicates.
+   workflow needs to drop duplicates. A signed `webhook-ping` (Dutify Cloud checking that a
+   webhook it paused can be reached again) is answered with 200 and does not start the workflow.
 4. Deactivating the workflow (or ending the test listen) deletes the webhook. If Dutify refuses
    the delete, the trigger pauses the webhook instead.
 
