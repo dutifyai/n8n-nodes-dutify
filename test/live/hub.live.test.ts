@@ -33,6 +33,8 @@ import {
  */
 
 const MARKER = 'Atlas';
+/** The reusable audio standup; its call carries this name. */
+const AUDIO_FILE_NAME = 'n8n-live-standup.mp3';
 const PROCESSING_TIMEOUT_MS = 15 * 60_000;
 
 interface TestRecording {
@@ -60,17 +62,26 @@ async function waitUntilProcessed(recording: string): Promise<IDataObject> {
 	}
 }
 
-/** The workspace's test recording: the newest call's first recording. */
+/**
+ * The workspace's test recording: the uploaded audio standup (its call is named after the file),
+ * else the newest call's first recording. A video call the paid suite left behind is newer than
+ * the standup, so the name decides first.
+ */
 async function findRecording(): Promise<TestRecording | undefined> {
+	const found: Array<{ name: string; target: TestRecording }> = [];
 	for (const row of await run('call', 'list', { limit: 10 })) {
-		const recordings = ((row.call as IDataObject | undefined)?.recordings ?? []) as IDataObject[];
+		const call = row.call as IDataObject | undefined;
+		const recordings = (call?.recordings ?? []) as IDataObject[];
 		const first = recordings.find((r) => r.id !== undefined && r.id !== null);
 		if (first) {
-			return { call: String(row.id), recording: String(first.id) };
+			found.push({
+				name: String(call?.name ?? ''),
+				target: { call: String(row.id), recording: String(first.id) },
+			});
 		}
 	}
 
-	return undefined;
+	return (found.find((f) => f.name === AUDIO_FILE_NAME) ?? found[0])?.target;
 }
 
 async function uploadRecording(audio: Buffer): Promise<TestRecording> {
@@ -79,9 +90,9 @@ async function uploadRecording(audio: Buffer): Promise<TestRecording> {
 		'upload',
 		{
 			binaryPropertyName: 'data',
-			additionalFields: { fileName: 'n8n-live-standup.mp3', noteTemplate: 'standup' },
+			additionalFields: { fileName: AUDIO_FILE_NAME, noteTemplate: 'standup' },
 		},
-		{ property: 'data', data: audio, mimeType: 'audio/mpeg', fileName: 'n8n-live-standup.mp3' },
+		{ property: 'data', data: audio, mimeType: 'audio/mpeg', fileName: AUDIO_FILE_NAME },
 	);
 	const recording = String(item.json.recordingId);
 	expect(recording).toMatch(/^\d+$/);
@@ -338,11 +349,15 @@ liveDescribe('Hub recording preview of an uploaded video — live (paid)', () =>
 			);
 			const recording = String(item.json.recordingId);
 			expect(recording).toMatch(/^\d+$/);
-			const status = await waitUntilProcessed(recording);
-			const call = String(status.userCallId);
+			// The call exists from the upload on: register its deletion before waiting for processing,
+			// so a run that fails or times out while processing still removes it.
+			const call = String((await processingStatus(recording)).userCallId);
+			expect(call).toMatch(/^\d+$/);
 			cleanup.add(`hub call ${call}`, async () => {
 				await rawRequest({ method: 'DELETE', path: `/api/usercall/${encodeURIComponent(call)}` });
 			});
+			const status = await waitUntilProcessed(recording);
+			expect(String(status.userCallId)).toBe(call);
 
 			const preview = await runOne('recording', 'getPreviewUrl', { recording });
 			expect(String(preview.url)).toMatch(/^https:\/\//);

@@ -36,7 +36,7 @@
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
 		"test": "vitest run test/unit",
-		"test:live": "vitest run test/live --no-file-parallelism --testTimeout=20000",
+		"test:live": "vitest run test/live --no-file-parallelism --testTimeout=20000 --hookTimeout=120000",
 		"release": "n8n-node release",
 		"prepublishOnly": "n8n-node prerelease"
 	},
