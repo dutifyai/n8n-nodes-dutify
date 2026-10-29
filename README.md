@@ -51,12 +51,21 @@ A personal key works in every workspace you belong to. Each node has a **Workspa
 | People         | Team, Member, Invitation, Import Job, User, Notification, Activity Log                                                                                |
 | Integration    | Dutify Cloud Webhook (webhooks for Dutify Cloud, Codexum and Roadmarq events, deliveries, replay)                                                     |
 | Codexum (wiki) | Codexum Page (Markdown in and out), Codexum Space (incl. public wiki settings), Codexum Attachment (binary upload)                                    |
-| Roadmarq       | Feature Request, Bug                                                                                                                                  |
-| Dutify Hub     | Call (incl. delete, select a Jira/ClickUp/Airtable destination for its action items, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), AI Coworker (ask), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
+| Roadmarq       | Feature Request, Bug, Roadmarq Board (update its settings)                                                                                            |
+| Dutify Hub     | Call (incl. delete, select a Jira/ClickUp/Airtable destination for its action items, custom prompt), Recording (upload, status, signed media URLs, reprocess, summaries), AI Coworker (ask, usage), Meeting Webhook (manage webhooks, test delivery, delivery log), Hub Workspace (members, custom prompt, default workspace), Hub Integration (connected integrations, preferred one), Calendar Event (events, event and series prompts) |
 
 Pickers load names from your workspace (spaces, lists, statuses, members, boards, pages and
 more). Name-based fields such as a task status match names, ignoring case. A misspelled name
 fails with a 400, and the n8n error lists the valid options.
+
+**Errors** show Dutify's own message as the n8n error message and its error code in the
+description (for example `Code: NOT_FOUND`), for every product. With **On Error → Continue**,
+the output item carries `error`, `description`, `httpCode` and `errorCode`, so a workflow can
+branch on the code.
+
+**Get Many** operations return everything with **Return All**, page by page, and stop at
+**Limit** otherwise. That includes the pages of a Codexum space (one level at a time, any
+number of pages) and the bugs of a Roadmarq board.
 
 ### Dutify Cloud
 
@@ -69,8 +78,13 @@ fails with a 400, and the n8n error lists the valid options.
 
 ### Roadmarq
 
-A new bug waits in the moderation queue and appears in board lists once it is approved
-(Bug → Moderate).
+- A new bug waits for approval when the board's **Bug Approval** setting is All (the default),
+  and appears in board lists once it is approved (Bug → Moderate). Set Bug Approval to
+  Anonymous Only or None with Roadmarq Board → Update to list bugs from signed-in members at
+  once.
+- **Roadmarq Board → Update** changes only the fields you set: a setting you leave out keeps its
+  value, and a switch you set to off (for example Bug Reports) is turned off. It needs the Manage
+  Settings permission on the board.
 
 ### Dutify Hub
 
@@ -82,15 +96,23 @@ A new bug waits in the moderation queue and appears in board lists once it is ap
   does not keep an upload slot. The upload returns at once with the `recordingId`; processing
   takes a few minutes (poll Recording → Get Processing Status, or use the Meeting Processed
   trigger).
-- **Media URLs:** for an uploaded audio file, Get Media URL and Get Audio URL return signed URLs.
-  For an uploaded video both answer 400 (Hub does not give video playback links to API keys).
-  An audio file has no preview image, so Get Preview URL answers 400. A finished upload reports
-  progress 95, not 100; use `processed` from Get Processing Status.
-- **AI Coworker:** AI Coworker → Ask counts toward the workspace's AI Coworker usage, which is
-  billed separately. When the workspace has no AI Coworker usage left, the operation fails with
-  Hub's message, which reads "This workspace is out of Lens credits".
-- **Errors:** Hub answers errors as plain text (for example `No such webhook`); the node shows
-  that text as the error message.
+- **Media URLs:** Get Media URL and Get Audio URL return signed links for uploaded audio and
+  video. An uploaded video has no separate audio track, so Get Audio URL signs the video file.
+  Only a video has a preview image: for an audio recording Get Preview URL answers 404
+  `NO_PREVIEW`. A recording that is still processing answers 409 `RECORDING_STILL_PROCESSING`,
+  and a recording you cannot see answers 404 `NOT_FOUND`.
+- **Progress:** Get Progress and Get Processing Status report 100 once a recording is processed.
+- **Reprocess:** Recording → Reprocess queues a full re-run (transcription, summary, key points
+  and action items) and returns at once with `scheduled: true`, so it never waits past n8n's
+  HTTP timeout. Follow the run with Get Processing Status or the Meeting Processed trigger.
+  Dutify refuses it with 404 `NOT_FOUND`, 402 `TRANSCRIPTION_QUOTA_EXCEEDED`, or 409
+  (`WORKFLOW_IN_PROGRESS` while a run is going, `RECORDING_MEDIA_MISSING` when there is nothing
+  to run on). For a new summary only, Regenerate Summary is faster and cheaper.
+- **AI Coworker:** each AI Coworker → Ask question uses one unit of the workspace's AI Coworker
+  usage: its monthly allowance first, then purchased usage. **AI Coworker → Get Usage** reads
+  what is left: `allowanceRemaining` of the `monthlyAllowance` (renewed at `cycleResetsAt`),
+  `purchasedBalance` and `total`. When `total` is 0, Ask fails with 402
+  `AI_COWORKER_USAGE_EXHAUSTED` until the allowance renews or a workspace owner adds more.
 
 ## Trigger setup
 
