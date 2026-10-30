@@ -1,6 +1,6 @@
 {
 	"name": "@dutifyai/n8n-nodes-dutify",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "n8n community nodes for Dutify: Dutify Cloud projects and tasks, Codexum docs and wiki, Roadmarq feedback, feature requests and bugs, and Dutify Hub meetings, recordings and AI Coworker, with a trigger for their events and processed meetings.",
 	"license": "MIT",
 	"publishConfig": {
