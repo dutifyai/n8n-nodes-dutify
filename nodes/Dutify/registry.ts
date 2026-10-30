@@ -81,6 +81,24 @@ function scoped(field: INodeProperties, show: Record<string, Array<string | bool
 	} as INodeProperties;
 }
 
+/**
+ * Makes every dropdown in a workspace-scoped field reload when the workspace changes. n8n keeps a
+ * dropdown's options until a parameter in loadOptionsDependsOn changes, so without this a dropdown
+ * opened before a workspace was chosen stays empty.
+ */
+function reloadsWithWorkspace(field: INodeProperties): INodeProperties {
+	const dependsOn = field.typeOptions?.loadOptionsDependsOn ?? [];
+	const typeOptions =
+		field.typeOptions?.loadOptionsMethod && !dependsOn.includes('workspace.value')
+			? { ...field.typeOptions, loadOptionsDependsOn: [...dependsOn, 'workspace.value'] }
+			: field.typeOptions;
+	const options = field.options?.map((o) =>
+		'type' in o ? reloadsWithWorkspace(o) : o,
+	) as INodeProperties['options'];
+
+	return { ...field, typeOptions, ...(options ? { options } : {}) };
+}
+
 export function buildProperties(defs: ResourceDef[]): INodeProperties[] {
 	const defaultResource = defs[0]?.value ?? '';
 	const properties: INodeProperties[] = [
@@ -122,7 +140,7 @@ export function buildProperties(defs: ResourceDef[]): INodeProperties[] {
 			const show = { resource: [r.value], operation: [o.operation] };
 			const fields = o.list ? [...o.fields, ...returnAllFields()] : o.fields;
 			for (const field of fields) {
-				properties.push(scoped(field, show));
+				properties.push(scoped(r.workspaceScoped ? reloadsWithWorkspace(field) : field, show));
 			}
 		}
 	}

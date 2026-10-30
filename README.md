@@ -116,6 +116,12 @@ number of pages) and the bugs of a Roadmarq board.
 
 ## Changelog
 
+### 0.1.5
+
+- Fixed: the Space, List, Status, Member, Task Type and other pickers that list a workspace's
+  items stayed empty when they were opened before the Workspace was chosen. They now reload
+  whenever the Workspace changes.
+
 ### 0.1.4
 
 - Removed: the three Call operations that selected a third-party destination for a call's
