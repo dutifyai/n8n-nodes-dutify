@@ -317,11 +317,21 @@ describe('page move', () => {
 		});
 	});
 
-	it('with no parent and no sibling it moves to the top level (empty body)', () => {
+	// n8n sends no body at all for an empty object, and Codexum answers a body-less move with 500.
+	it('with no parent it says so with newParent: null, so the body is never empty', () => {
 		expect(
 			buildPage('move', { space: 'DOCS', page: 'p', newParent: '', afterPage: '', options: {} })
 				.body,
-		).toEqual({});
+		).toEqual({ newParent: null });
+		expect(
+			buildPage('move', {
+				space: 'DOCS',
+				page: 'p',
+				newParent: '',
+				afterPage: 'intro',
+				options: {},
+			}).body,
+		).toEqual({ newParent: null, afterPage: 'intro' });
 	});
 });
 

@@ -412,6 +412,8 @@ const pageOperations: OperationDef[] = [
 			method: 'POST',
 			path: `${litePage(p)}/move`,
 			body: {
+				// An explicit null means "top level". n8n drops an empty body, and Codexum fails without one.
+				newParent: null,
 				...pick(
 					{ newParent: p.get<string>('newParent', ''), afterPage: p.get<string>('afterPage', '') },
 					['newParent', 'afterPage'],
