@@ -7,6 +7,7 @@ import type {
 	INodeProperties,
 } from 'n8n-workflow';
 import { ApplicationError, BINARY_ENCODING, NodeApiError, NodeOperationError } from 'n8n-workflow';
+import { reloadsWithWorkspace } from '../../shared/fieldHelpers';
 import { returnAllFields, workspaceField } from '../../shared/fields';
 import { requestAllPages } from '../../shared/pagination';
 import { dutifyErrorOf, dutifyRequest } from '../../shared/transport';
@@ -79,24 +80,6 @@ function scoped(field: INodeProperties, show: Record<string, Array<string | bool
 			show: { ...show, ...field.displayOptions?.show },
 		},
 	} as INodeProperties;
-}
-
-/**
- * Makes every dropdown in a workspace-scoped field reload when the workspace changes. n8n keeps a
- * dropdown's options until a parameter in loadOptionsDependsOn changes, so without this a dropdown
- * opened before a workspace was chosen stays empty.
- */
-function reloadsWithWorkspace(field: INodeProperties): INodeProperties {
-	const dependsOn = field.typeOptions?.loadOptionsDependsOn ?? [];
-	const typeOptions =
-		field.typeOptions?.loadOptionsMethod && !dependsOn.includes('workspace.value')
-			? { ...field.typeOptions, loadOptionsDependsOn: [...dependsOn, 'workspace.value'] }
-			: field.typeOptions;
-	const options = field.options?.map((o) =>
-		'type' in o ? reloadsWithWorkspace(o) : o,
-	) as INodeProperties['options'];
-
-	return { ...field, typeOptions, ...(options ? { options } : {}) };
 }
 
 export function buildProperties(defs: ResourceDef[]): INodeProperties[] {

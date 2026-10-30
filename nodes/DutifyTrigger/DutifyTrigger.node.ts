@@ -16,7 +16,7 @@ import type {
 	JsonObject,
 } from 'n8n-workflow';
 import { PM_EVENT_OPTIONS } from '../../shared/pmEvents';
-import { idPicker } from '../../shared/fieldHelpers';
+import { idPicker, reloadsWithWorkspace } from '../../shared/fieldHelpers';
 import { workspaceField } from '../../shared/fields';
 import { dutifyErrorOf, dutifyRequest } from '../../shared/transport';
 import type { ParamReader, RequestSpec } from '../../shared/types';
@@ -496,7 +496,7 @@ export class DutifyTrigger implements INodeType {
 				description: 'The events that start the workflow',
 			}),
 			...scopeFields(false).map(forPm),
-		],
+		].map(reloadsWithWorkspace),
 	};
 
 	methods = { listSearch, loadOptions };

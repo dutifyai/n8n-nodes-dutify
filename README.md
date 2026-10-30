@@ -120,7 +120,8 @@ number of pages) and the bugs of a Roadmarq board.
 
 - Fixed: the Space, List, Status, Member, Task Type and other pickers that list a workspace's
   items stayed empty when they were opened before the Workspace was chosen. They now reload
-  whenever the Workspace changes.
+  whenever the Workspace changes. The same fix covers the Dutify Trigger's Space, Folder and List
+  scope pickers.
 - Fixed: Codexum Page > Move to the top level (no new parent) failed with "An unexpected error
   occurred".
 

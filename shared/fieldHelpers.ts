@@ -116,3 +116,21 @@ export const idPicker = (
 	...(showOn ? { displayOptions: { show: { [showOn.field]: [showOn.value] } } } : {}),
 	description: EXPRESSION_HINT,
 });
+
+/**
+ * Makes every dropdown in a workspace-scoped field reload when the workspace changes. n8n keeps a
+ * dropdown's options until a parameter in loadOptionsDependsOn changes, so without this a dropdown
+ * opened before a workspace was chosen stays empty.
+ */
+export function reloadsWithWorkspace(field: INodeProperties): INodeProperties {
+	const dependsOn = field.typeOptions?.loadOptionsDependsOn ?? [];
+	const typeOptions =
+		field.typeOptions?.loadOptionsMethod && !dependsOn.includes('workspace.value')
+			? { ...field.typeOptions, loadOptionsDependsOn: [...dependsOn, 'workspace.value'] }
+			: field.typeOptions;
+	const options = field.options?.map((o) =>
+		'type' in o ? reloadsWithWorkspace(o) : o,
+	) as INodeProperties['options'];
+
+	return { ...field, typeOptions, ...(options ? { options } : {}) };
+}

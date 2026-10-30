@@ -1,6 +1,7 @@
 import type { INodeProperties } from 'n8n-workflow';
 import { describe, expect, it } from 'vitest';
 import { buildProperties, resources } from '../../nodes/Dutify/registry';
+import { DutifyTrigger } from '../../nodes/DutifyTrigger/DutifyTrigger.node';
 
 // n8n caches a dropdown's options until a parameter named in loadOptionsDependsOn changes.
 // A dropdown that lists the workspace's spaces, lists or members therefore has to name the
@@ -44,4 +45,21 @@ describe('dropdowns that load from a workspace', () => {
 			expect.arrayContaining(['space', 'list', 'workspace.value']),
 		);
 	});
+});
+
+describe('Dutify Trigger dropdowns that load from a workspace', () => {
+	const loaders = dropdowns(new DutifyTrigger().description.properties);
+
+	it('finds the trigger dropdowns, the scope pickers among them', () => {
+		expect(loaders.map((p) => p.name)).toEqual(
+			expect.arrayContaining(['scopeSpace', 'scopeFolder', 'scopeList', 'wikiScopeSpace']),
+		);
+	});
+
+	it.each(loaders.map((p) => [`${p.name} (${String(p.typeOptions?.loadOptionsMethod)})`, p]))(
+		'%s reloads when the workspace changes',
+		(_label, p) => {
+			expect(p.typeOptions?.loadOptionsDependsOn ?? []).toContain('workspace.value');
+		},
+	);
 });
