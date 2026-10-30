@@ -121,6 +121,8 @@ number of pages) and the bugs of a Roadmarq board.
 - Fixed: the Space, List, Status, Member, Task Type and other pickers that list a workspace's
   items stayed empty when they were opened before the Workspace was chosen. They now reload
   whenever the Workspace changes.
+- Fixed: Codexum Page > Move to the top level (no new parent) failed with "An unexpected error
+  occurred".
 
 ### 0.1.4
 
