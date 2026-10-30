@@ -450,7 +450,7 @@ export class DutifyTrigger implements INodeType {
 				path: 'webhook',
 			},
 		],
-		properties: [
+		properties: (<INodeProperties[]>[
 			{
 				displayName: 'Source',
 				name: 'source',
@@ -496,7 +496,7 @@ export class DutifyTrigger implements INodeType {
 				description: 'The events that start the workflow',
 			}),
 			...scopeFields(false).map(forPm),
-		].map(reloadsWithWorkspace),
+		]).map(reloadsWithWorkspace),
 	};
 
 	methods = { listSearch, loadOptions };
