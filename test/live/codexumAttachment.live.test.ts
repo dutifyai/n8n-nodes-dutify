@@ -11,6 +11,7 @@ import {
 	storageOutage,
 	wikiKey,
 } from './harness';
+import { engineEnabled } from './engine';
 
 /** About 300 KB of random bytes: big enough that a broken body encoding would show. */
 const FILE = randomBytes(300 * 1024 + 17);
@@ -23,7 +24,10 @@ liveDescribe('Codexum attachment — live', () => {
 
 	beforeAll(async () => {
 		await runOne('codexumSpace', 'create', { key, name: `n8n-live files ${runId}` });
-		cleanup.add(`wiki space ${key}`, async () => await runOne('codexumSpace', 'delete', { space: key }));
+		cleanup.add(
+			`wiki space ${key}`,
+			async () => await runOne('codexumSpace', 'delete', { space: key }),
+		);
 		await runOne('codexumPage', 'create', { space: key, title: `Files ${runId}` });
 		const ids = await loadOptionsOf('getWikiPageIds', { space: key });
 		expect(ids).toHaveLength(1);
@@ -65,7 +69,8 @@ liveDescribe('Codexum attachment — live', () => {
 		expect(options.map((o) => String(o.value))).toContain(attachmentId);
 	});
 
-	it('a failed storage PUT leaves no pending attachment behind', async () => {
+	// The outage is simulated inside the emulated runtime, which engine mode does not use.
+	it.skipIf(engineEnabled)('a failed storage PUT leaves no pending attachment behind', async () => {
 		storageOutage.active = true;
 		try {
 			await expect(

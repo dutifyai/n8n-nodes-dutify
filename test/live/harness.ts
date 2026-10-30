@@ -33,6 +33,7 @@ import { describe } from 'vitest';
 import { Dutify } from '../../nodes/Dutify/Dutify.node';
 import { listSearch, loadOptions } from '../../nodes/Dutify/loaders';
 import { dutifyRequest } from '../../shared/transport';
+import { engineEnabled, runInEngine } from './engine';
 import type { RequestSpec } from '../../shared/types';
 
 const ENV_FILE = resolve(__dirname, '../../.dutify-test.env');
@@ -331,6 +332,9 @@ export async function runOperation(
 	binary?: BinaryInput,
 ): Promise<INodeExecutionData[]> {
 	const all: IDataObject = { resource, operation, workspace: workspaceLocator(), ...params };
+	if (engineEnabled) {
+		return await runInEngine(all, binary);
+	}
 	const output = await new Dutify().execute.call(executeContext(all, binary));
 
 	return output[0];
