@@ -116,6 +116,10 @@ number of pages) and the bugs of a Roadmarq board.
 
 ## Changelog
 
+### 0.1.7
+
+- The node, the trigger and the Dutify API credential now show the Dutify logo.
+
 ### 0.1.6
 
 - Fixed: the Space, List, Status, Member, Task Type and other pickers that list a workspace's
