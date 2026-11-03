@@ -78,11 +78,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          # Node 24: isolated-vm (an n8n-workflow dependency) does not build on Node 25.
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: 'npm ci'
+
+      # A release must pass the same unit tests as every pull request.
+      - name: Unit tests
+        run: 'npm test'
 
       - name: Release
         # Publishes to npm with a provenance attestation (requires id-token: write above).

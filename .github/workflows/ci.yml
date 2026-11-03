@@ -1,0 +1,28 @@
+name: CI
+
+# Every pull request and every push to main: lint, build and the unit tests.
+# The live tests (test/live) write to production with a test-workspace key and
+# stay manual; test/unit/ciCoverage.test.ts keeps every other test file in here.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # Node 24: isolated-vm (an n8n-workflow dependency) does not build on Node 25.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
