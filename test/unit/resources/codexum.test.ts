@@ -146,6 +146,12 @@ describe('page list', () => {
 		expect(page('list').list).toBe(true);
 	});
 
+	it('a Parent Page added to Options and left blank lists the root pages', () => {
+		expect(buildPage('list', { space: 'DOCS', options: { parent: '' } }).qs).toEqual(
+			buildPage('list', { space: 'DOCS', options: {} }).qs,
+		);
+	});
+
 	it('lists the children of a parent slug', () => {
 		expect(buildPage('list', { space: 'DOCS', options: { parent: 'handbook' } }).qs).toEqual({
 			parent: 'handbook',
