@@ -116,6 +116,16 @@ number of pages) and the bugs of a Roadmarq board.
 
 ## Changelog
 
+### 0.1.8
+
+- Optional fields moved into each operation's Additional Fields or Options: Task > Create Status;
+  Codexum Page > Get Many Parent Page; Codexum Page > Create Markdown Body and Parent Page; Codexum
+  Page > Move New Parent Page and Insert After Page; Codexum Page > Delete Permanent; Sprint >
+  Complete Roll Over Unfinished Tasks To; Automation > Get Many Include Descendants; Recording >
+  Regenerate Summary Save Result; Meeting Webhook > Create Secret and Sections. A workflow that set
+  one of these on an earlier version needs it set again under Additional Fields or Options.
+- Custom Field > Create: Scope Name is required when Scope is Space or List.
+
 ### 0.1.7
 
 - The node, the trigger and the Dutify API credential now show the Dutify logo.
