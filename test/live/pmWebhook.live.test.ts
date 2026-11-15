@@ -385,7 +385,7 @@ liveDescribe('PM webhook — live', () => {
 		skip,
 	}) => {
 		await scopeGoneRoundTrip(skip, 'NG', async (space, page) => {
-			await runOne('codexumPage', 'delete', { space, page: String(page.slug), permanent: true });
+			await runOne('codexumPage', 'delete', { space, page: String(page.slug), options: { permanent: true } });
 
 			return false;
 		});

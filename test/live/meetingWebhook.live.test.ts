@@ -32,9 +32,11 @@ liveDescribe('Meeting Webhook — live', () => {
 	it('create binds a webhook with the chosen sections; get, list and the picker show it', async () => {
 		const created = await runOne('meetingWebhook', 'create', {
 			url,
-			secret: `s-${runId}`,
-			sections: ['summary', 'actionItems'],
-			additionalFields: { name: `n8n live ${runId}` },
+			additionalFields: {
+				secret: `s-${runId}`,
+				sections: ['summary', 'actionItems'],
+				name: `n8n live ${runId}`,
+			},
 		});
 		id = String(created.id);
 		cleanup.add(
@@ -92,7 +94,7 @@ liveDescribe('Meeting Webhook — live', () => {
 	it('a non-https URL is refused with a 400', async () => {
 		const error = await runError('meetingWebhook', 'create', {
 			url: `http://example.com/n8n-live/plain-${runId}`,
-			sections: ['summary'],
+			additionalFields: { sections: ['summary'] },
 		});
 		expect(error.httpCode).toBe('400');
 		expect(error.message).toContain('https://');

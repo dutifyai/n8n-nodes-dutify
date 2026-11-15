@@ -279,7 +279,7 @@ liveDescribe('Hub call, recording and AI Coworker — live', () => {
 	paid('regenerateSummary returns a new summary without saving it', async (t) => {
 		const [result] = await run('recording', 'regenerateSummary', {
 			recording: t.recording,
-			saveToDb: false,
+			options: { saveToDb: false },
 		});
 		expect(JSON.stringify(result)).toMatch(/Atlas|login|checklist/i);
 	});

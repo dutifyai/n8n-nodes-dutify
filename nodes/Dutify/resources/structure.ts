@@ -441,6 +441,7 @@ const createCustomField: OperationDef = {
 			name: 'scopeName',
 			type: 'string',
 			default: '',
+			required: true,
 			displayOptions: { show: { scope: ['space', 'list'] } },
 			description:
 				'Name of the space or list the field belongs to. A list name is matched across the workspace.',

@@ -17,7 +17,9 @@ const build = (name: string, params: Record<string, unknown>) => op(name).build!
 
 const loaderOf = (operation: string, field: string) =>
 	(
-		op(operation).fields.find((f) => f.name === field)?.typeOptions as
+		op(operation)
+			.fields.flatMap((f) => [f, ...((f.type === 'collection' ? f.options : []) as typeof f[])])
+			.find((f) => f.name === field)?.typeOptions as
 			| { loadOptionsMethod?: string }
 			| undefined
 	)?.loadOptionsMethod;
@@ -143,13 +145,13 @@ describe('sprints', () => {
 	});
 
 	it('complete: POST sprints/{sprint}/complete; the body is required, rollover is optional', () => {
-		expect(build('complete', { space: 'sp_eng', sprint: 'spr_1', rolloverSprint: '' })).toEqual({
+		expect(build('complete', { space: 'sp_eng', sprint: 'spr_1', options: {} })).toEqual({
 			method: 'POST',
 			path: '/mp/api/v1/sprints/spr_1/complete',
 			body: {},
 		});
 		expect(
-			build('complete', { space: 'sp_eng', sprint: 'spr_1', rolloverSprint: 'spr_2' }).body,
+			build('complete', { space: 'sp_eng', sprint: 'spr_1', options: { rolloverSprint: 'spr_2' } }).body,
 		).toEqual({ rolloverSprintIdentifier: 'spr_2' });
 	});
 

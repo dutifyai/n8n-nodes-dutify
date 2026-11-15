@@ -116,7 +116,7 @@ liveDescribe('sprint — live', () => {
 		await runOne('sprint', 'complete', {
 			space: space.identifier,
 			sprint,
-			rolloverSprint: nextSprint,
+			options: { rolloverSprint: nextSprint },
 		});
 		const rolled = await run('sprint', 'getTasks', { space: space.identifier, sprint: nextSprint });
 		expect(JSON.stringify(rolled)).toContain(taskKey);

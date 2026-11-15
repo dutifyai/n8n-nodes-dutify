@@ -44,8 +44,7 @@ liveDescribe('task, task comment, task relationship — live', () => {
 
 	it('create by list NAME (resolved through the shallow context) with a status', async () => {
 		const made = await createTask(`Live task ${runId}`, {
-			status,
-			additionalFields: { description: 'Created by the n8n live tests', tags: `t-${runId}` },
+			additionalFields: { status, description: 'Created by the n8n live tests', tags: `t-${runId}` },
 		});
 		task = { key: made.key, identifier: made.identifier };
 		expect(made.created).toMatchObject({
@@ -81,7 +80,7 @@ liveDescribe('task, task comment, task relationship — live', () => {
 		const error = await runError('task', 'create', {
 			title: `Bad status ${runId}`,
 			list: listName,
-			status: 'Not A Real Status zz',
+			additionalFields: { status: 'Not A Real Status zz' },
 		});
 		expect(error.httpCode).toBe('400');
 		expect(error.description).toContain('Valid options:');
