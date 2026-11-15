@@ -155,6 +155,12 @@ describe('sprints', () => {
 		).toEqual({ rolloverSprintIdentifier: 'spr_2' });
 	});
 
+	it('complete: a rollover picker added to Options and left blank rolls nothing over', () => {
+		expect(
+			build('complete', { space: 'sp_eng', sprint: 'spr_1', options: { rolloverSprint: '' } }).body,
+		).toEqual({});
+	});
+
 	it('getTasks: GET sprints/{sprint}/tasks (a plain array, no paging)', () => {
 		expect(build('getTasks', { space: 'sp_eng', sprint: 'spr_1' })).toEqual({
 			method: 'GET',

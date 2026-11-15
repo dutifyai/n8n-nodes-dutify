@@ -318,6 +318,12 @@ describe('page move', () => {
 		});
 	});
 
+	it('pickers added to Options and left blank count as not set', () => {
+		expect(
+			buildPage('move', { space: 'DOCS', page: 'p', options: { newParent: '', afterPage: '' } }).body,
+		).toEqual({ newParent: null });
+	});
+
 	// n8n sends no body at all for an empty object, and Codexum answers a body-less move with 500.
 	it('with no parent it says so with newParent: null, so the body is never empty', () => {
 		expect(

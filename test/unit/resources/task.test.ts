@@ -271,6 +271,11 @@ describe('task', () => {
 		expect(spec.body).toEqual({ title: 'T', list: 'lst_1' });
 	});
 
+	it('create: a Status added to Additional Fields and left blank is not sent', () => {
+		const spec = build(task, 'create', { title: 'T', list: 'lst_1', additionalFields: { status: '' } });
+		expect(spec.body).toEqual({ title: 'T', list: 'lst_1' });
+	});
+
 	it('create: space, list, status and assignees pickers use the context loaders with the right dependencies', () => {
 		expect(field(task, 'create', 'space')?.typeOptions).toMatchObject({
 			loadOptionsMethod: 'getSpaces',
