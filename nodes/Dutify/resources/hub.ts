@@ -417,20 +417,22 @@ const recordingOperations: OperationDef[] = [
 			'Re-generate your own summary, key points and action items from the existing transcript. This uses AI compute.',
 		fields: [
 			recordingField(),
-			{
-				displayName: 'Save Result',
-				name: 'saveToDb',
-				type: 'boolean',
-				default: true,
-				description:
-					'Whether to store the new version. When off, the new summary is only returned.',
-			},
+			collection('Options', 'options', [
+				{
+					displayName: 'Save Result',
+					name: 'saveToDb',
+					type: 'boolean',
+					default: true,
+					description:
+						'Whether to store the new version. When off, the new summary is only returned. Saved when left out.',
+				},
+			]),
 		],
 		run: async (ctx, p) => {
 			const response = await ctx.request({
 				method: 'POST',
 				path: `${recordingPath(p)}/regenerate-summary`,
-				body: { saveToDb: p.get<boolean>('saveToDb', true) },
+				body: { saveToDb: p.get<IDataObject>('options', {}).saveToDb !== false },
 			});
 
 			return typeof response === 'string' ? [{ json: { summary: response } }] : oneItem(response);

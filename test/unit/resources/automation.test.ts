@@ -57,12 +57,12 @@ describe('automation list', () => {
 	});
 
 	it('lists a folder: GET automations/folder/{id}, with includeDescendants only when on', () => {
-		expect(build('list', { scope: 'folder', folder: 'fld_1', includeDescendants: false })).toEqual({
+		expect(build('list', { scope: 'folder', folder: 'fld_1', options: { includeDescendants: false } })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/automations/folder/fld_1',
 			paginate: PAGING,
 		});
-		expect(build('list', { scope: 'folder', folder: 'fld_1', includeDescendants: true })).toEqual({
+		expect(build('list', { scope: 'folder', folder: 'fld_1', options: { includeDescendants: true } })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/automations/folder/fld_1',
 			qs: { includeDescendants: true },
@@ -71,7 +71,7 @@ describe('automation list', () => {
 	});
 
 	it('lists a space: GET automations/space/{id}', () => {
-		expect(build('list', { scope: 'space', space: 'sp_1', includeDescendants: true })).toEqual({
+		expect(build('list', { scope: 'space', space: 'sp_1', options: { includeDescendants: true } })).toEqual({
 			method: 'GET',
 			path: '/mp/api/v1/automations/space/sp_1',
 			qs: { includeDescendants: true },
@@ -81,7 +81,7 @@ describe('automation list', () => {
 
 	it('the list scope does not send includeDescendants (the endpoint does not declare it)', () => {
 		expect(
-			build('list', { scope: 'list', list: 'lst_1', includeDescendants: true }).qs,
+			build('list', { scope: 'list', list: 'lst_1', options: { includeDescendants: true } }).qs,
 		).toBeUndefined();
 	});
 

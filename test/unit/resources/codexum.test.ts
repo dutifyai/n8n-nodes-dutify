@@ -91,7 +91,9 @@ describe('registration', () => {
 			['move', 'newParent'],
 			['move', 'afterPage'],
 		] as const) {
-			const f = page(op).fields.find((x) => x.name === field);
+			const f = page(op)
+				.fields.flatMap((x) => [x, ...((x.type === 'collection' ? x.options : []) as typeof x[])])
+				.find((x) => x.name === field);
 			expect(f?.typeOptions?.loadOptionsMethod).toBe('getWikiParentPages');
 			expect(f?.typeOptions?.loadOptionsDependsOn).toEqual(['space']);
 		}
@@ -139,19 +141,25 @@ describe('page list', () => {
 	};
 
 	it('lists root pages with offset paging, 500 at a time', () => {
-		const spec = buildPage('list', { space: 'DOCS', parent: '' });
+		const spec = buildPage('list', { space: 'DOCS', options: {} });
 		expect(spec).toEqual({ method: 'GET', path: LITE, qs: {}, paginate: OFFSET_PAGING });
 		expect(page('list').list).toBe(true);
 	});
 
+	it('a Parent Page added to Options and left blank lists the root pages', () => {
+		expect(buildPage('list', { space: 'DOCS', options: { parent: '' } }).qs).toEqual(
+			buildPage('list', { space: 'DOCS', options: {} }).qs,
+		);
+	});
+
 	it('lists the children of a parent slug', () => {
-		expect(buildPage('list', { space: 'DOCS', parent: 'handbook' }).qs).toEqual({
+		expect(buildPage('list', { space: 'DOCS', options: { parent: 'handbook' } }).qs).toEqual({
 			parent: 'handbook',
 		});
 	});
 
 	it('Return All follows X-Next-Offset past 500 pages, until it is gone', async () => {
-		const spec = buildPage('list', { space: 'DOCS', parent: '' });
+		const spec = buildPage('list', { space: 'DOCS', options: {} });
 		const rows = (from: number, n: number) =>
 			Array.from({ length: n }, (_, i) => ({ slug: `p-${from + i}` }));
 		const ctx = fakeContext([
@@ -164,7 +172,7 @@ describe('page list', () => {
 	});
 
 	it('Limit asks for no more pages than it returns', async () => {
-		const spec = buildPage('list', { space: 'DOCS', parent: 'handbook' });
+		const spec = buildPage('list', { space: 'DOCS', options: { parent: 'handbook' } });
 		const ctx = fakeContext([
 			{ body: [{ slug: 'a' }, { slug: 'b' }], headers: { 'x-next-offset': '2' } },
 		]);
@@ -202,9 +210,14 @@ describe('page create', () => {
 			buildPage('create', {
 				space: 'DOCS',
 				title: 'Quick start',
-				parent: 'handbook',
-				markdown: '# Quick start\n\nWelcome.',
-				additionalFields: { type: 'page', isPublic: false, icon: 'rocket', template: 'Runbook' },
+				additionalFields: {
+					parent: 'handbook',
+					markdown: '# Quick start\n\nWelcome.',
+					type: 'page',
+					isPublic: false,
+					icon: 'rocket',
+					template: 'Runbook',
+				},
 			}),
 		).toEqual({
 			method: 'POST',
@@ -226,9 +239,7 @@ describe('page create', () => {
 			buildPage('create', {
 				space: 'DOCS',
 				title: 'Blank',
-				parent: '',
-				markdown: '',
-				additionalFields: {},
+				additionalFields: { parent: '', markdown: '' },
 			}).body,
 		).toEqual({ title: 'Blank' });
 	});
@@ -238,9 +249,7 @@ describe('page create', () => {
 			buildPage('create', {
 				space: 'A/B',
 				title: 't',
-				parent: '',
-				markdown: '',
-				additionalFields: {},
+				additionalFields: { parent: '', markdown: '' },
 			}).path,
 		).toBe('/api/wiki/v1/workspaces/ws-1/wiki/spaces/A%2FB/pages/lite');
 	});
@@ -306,9 +315,7 @@ describe('page move', () => {
 			buildPage('move', {
 				space: 'DOCS',
 				page: 'a/b',
-				newParent: 'handbook',
-				afterPage: 'intro',
-				options: { targetSpaceKey: 'ENG' },
+				options: { newParent: 'handbook', afterPage: 'intro', targetSpaceKey: 'ENG' },
 			}),
 		).toEqual({
 			method: 'POST',
@@ -317,19 +324,23 @@ describe('page move', () => {
 		});
 	});
 
+	it('pickers added to Options and left blank count as not set', () => {
+		expect(
+			buildPage('move', { space: 'DOCS', page: 'p', options: { newParent: '', afterPage: '' } }).body,
+		).toEqual({ newParent: null });
+	});
+
 	// n8n sends no body at all for an empty object, and Codexum answers a body-less move with 500.
 	it('with no parent it says so with newParent: null, so the body is never empty', () => {
 		expect(
-			buildPage('move', { space: 'DOCS', page: 'p', newParent: '', afterPage: '', options: {} })
+			buildPage('move', { space: 'DOCS', page: 'p', options: {} })
 				.body,
 		).toEqual({ newParent: null });
 		expect(
 			buildPage('move', {
 				space: 'DOCS',
 				page: 'p',
-				newParent: '',
-				afterPage: 'intro',
-				options: {},
+				options: { afterPage: 'intro' },
 			}).body,
 		).toEqual({ newParent: null, afterPage: 'intro' });
 	});
@@ -337,7 +348,7 @@ describe('page move', () => {
 
 describe('page delete and sharing', () => {
 	it('delete archives by default', () => {
-		expect(buildPage('delete', { space: 'DOCS', page: 'a/b', permanent: false })).toEqual({
+		expect(buildPage('delete', { space: 'DOCS', page: 'a/b', options: {} })).toEqual({
 			method: 'DELETE',
 			path: `${PAGES}/a%2Fb`,
 			qs: { permanent: false },
@@ -345,7 +356,7 @@ describe('page delete and sharing', () => {
 	});
 
 	it('delete can be permanent', () => {
-		expect(buildPage('delete', { space: 'DOCS', page: 'p', permanent: true }).qs).toEqual({
+		expect(buildPage('delete', { space: 'DOCS', page: 'p', options: { permanent: true } }).qs).toEqual({
 			permanent: true,
 		});
 	});

@@ -266,16 +266,18 @@ const pageOperations: OperationDef[] = [
 		list: true,
 		fields: [
 			spaceField(),
-			optionalPageField(
-				'Parent Page Name or ID',
-				'parent',
-				'List the children of this page. Leave at top level to list the root pages',
-			),
+			collection('Options', 'options', [
+				optionalPageField(
+					'Parent Page Name or ID',
+					'parent',
+					'List the children of this page. Leave it out to list the root pages',
+				),
+			]),
 		],
 		build: (p) => ({
 			method: 'GET',
 			path: litePages(p),
-			qs: pick({ parent: p.get<string>('parent', '') }, ['parent']),
+			qs: pick(p.get<IDataObject>('options', {}), ['parent']),
 			paginate: PAGE_LIST_PAGING,
 		}),
 	},
@@ -314,13 +316,17 @@ const pageOperations: OperationDef[] = [
 				required: true,
 				description: 'Title of the page',
 			},
-			markdownField(
-				'markdown',
-				'Markdown Body',
-				'Page body as Markdown. Leave empty for a blank page',
-			),
-			optionalPageField('Parent Page Name or ID', 'parent', 'Create the page under this page'),
 			collection('Additional Fields', 'additionalFields', [
+				markdownField(
+					'markdown',
+					'Markdown Body',
+					'Page body as Markdown. Leave it out for a blank page',
+				),
+				optionalPageField(
+					'Parent Page Name or ID',
+					'parent',
+					'Create the page under this page. Leave it out to create a root page',
+				),
 				{
 					displayName: 'Type',
 					name: 'type',
@@ -338,11 +344,9 @@ const pageOperations: OperationDef[] = [
 			path: litePages(p),
 			body: {
 				title: p.get<string>('title'),
-				...pick({ parent: p.get<string>('parent', ''), markdown: p.get<string>('markdown', '') }, [
+				...pick(p.get<IDataObject>('additionalFields', {}), [
 					'parent',
 					'markdown',
-				]),
-				...pick(p.get<IDataObject>('additionalFields', {}), [
 					'type',
 					'template',
 					...PAGE_VISIBILITY_KEYS,
@@ -390,17 +394,17 @@ const pageOperations: OperationDef[] = [
 		fields: [
 			spaceField(),
 			pageField(),
-			optionalPageField(
-				'New Parent Page Name or ID',
-				'newParent',
-				'Move the page under this page. Leave at top level to move it to the root',
-			),
-			optionalPageField(
-				'Insert After Page Name or ID',
-				'afterPage',
-				'Sibling to insert the page after. Leave at top level to make it the first child',
-			),
 			collection('Options', 'options', [
+				optionalPageField(
+					'New Parent Page Name or ID',
+					'newParent',
+					'Move the page under this page. Leave it out to move it to the root',
+				),
+				optionalPageField(
+					'Insert After Page Name or ID',
+					'afterPage',
+					'Sibling to insert the page after. Leave it out to make it the first child',
+				),
 				optionalSpaceField(
 					'Target Space Name or ID',
 					'targetSpaceKey',
@@ -414,11 +418,7 @@ const pageOperations: OperationDef[] = [
 			body: {
 				// An explicit null means "top level". n8n drops an empty body, and Codexum fails without one.
 				newParent: null,
-				...pick(
-					{ newParent: p.get<string>('newParent', ''), afterPage: p.get<string>('afterPage', '') },
-					['newParent', 'afterPage'],
-				),
-				...pick(p.get<IDataObject>('options', {}), ['targetSpaceKey']),
+				...pick(p.get<IDataObject>('options', {}), ['newParent', 'afterPage', 'targetSpaceKey']),
 			},
 		}),
 	},
@@ -430,16 +430,18 @@ const pageOperations: OperationDef[] = [
 		fields: [
 			spaceField(),
 			pageField(),
-			bool(
-				'Permanent',
-				'permanent',
-				'Whether to delete the page permanently instead of archiving it. Needs admin access',
-			),
+			collection('Options', 'options', [
+				bool(
+					'Permanent',
+					'permanent',
+					'Whether to delete the page permanently instead of archiving it. Needs admin access',
+				),
+			]),
 		],
 		build: (p) => ({
 			method: 'DELETE',
 			path: `${pagesBase(p)}/${encodeURIComponent(p.get<string>('page'))}`,
-			qs: { permanent: p.get<boolean>('permanent', false) },
+			qs: { permanent: p.get<IDataObject>('options', {}).permanent === true },
 		}),
 	},
 	{

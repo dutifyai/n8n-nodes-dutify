@@ -68,7 +68,7 @@ liveDescribe('Codexum space and page — live', () => {
 		const created = await runOne('codexumPage', 'create', {
 			space: key,
 			title: `Q&A / notes ${runId}`,
-			markdown: `# Heading\n\nSome **bold** text ${runId}.\n\n- one\n- two\n`,
+			additionalFields: { markdown: `# Heading\n\nSome **bold** text ${runId}.\n\n- one\n- two\n` },
 		});
 		page = String(created.slug);
 		expect(page).toMatch(/\S/);
@@ -112,10 +112,10 @@ liveDescribe('Codexum space and page — live', () => {
 		const created = await runOne('codexumPage', 'create', {
 			space: key,
 			title: `Child ${runId}`,
-			parent: page,
+			additionalFields: { parent: page },
 		});
 		child = String(created.slug);
-		const children = await run('codexumPage', 'list', { space: key, parent: page, returnAll: true });
+		const children = await run('codexumPage', 'list', { space: key, options: { parent: page }, returnAll: true });
 		expect(children.map((c) => c.slug)).toContain(child);
 
 		await runOne('codexumPage', 'move', { space: key, page: child });
@@ -177,7 +177,7 @@ liveDescribe('Codexum space and page — live', () => {
 			const created = await runOne('codexumPage', 'create', {
 				space: key,
 				title: `Paging child ${n} ${runId}`,
-				parent,
+				additionalFields: { parent },
 			});
 			children.push(String(created.slug));
 		}
@@ -201,12 +201,12 @@ liveDescribe('Codexum space and page — live', () => {
 		expect(last.body).toHaveLength(1);
 		expect(last.headers['x-next-offset']).toBeUndefined();
 
-		expect(await run('codexumPage', 'list', { space: key, parent, limit: 2 })).toHaveLength(2);
-		const all = await run('codexumPage', 'list', { space: key, parent, returnAll: true });
+		expect(await run('codexumPage', 'list', { space: key, options: { parent }, limit: 2 })).toHaveLength(2);
+		const all = await run('codexumPage', 'list', { space: key, options: { parent }, returnAll: true });
 		expect(all.map((p) => p.slug).sort()).toEqual([...children].sort());
 
 		// The node's own list spec, walked 2 at a time: it follows X-Next-Offset until it is gone.
-		const params: Record<string, string> = { space: key, parent };
+		const params: Record<string, unknown> = { space: key, options: { parent } };
 		const spec = codexumPage.operations
 			.find((o) => o.operation === 'list')!
 			.build!({ workspace: live.workspace, get: <T>(name: string) => params[name] as T });
@@ -234,7 +234,7 @@ liveDescribe('Codexum space and page — live', () => {
 			status: 'archived',
 		});
 		expect(
-			await runOne('codexumPage', 'delete', { space: key, page: child, permanent: true }),
+			await runOne('codexumPage', 'delete', { space: key, page: child, options: { permanent: true } }),
 		).toEqual({ success: true });
 		const gone = await runError('codexumPage', 'get', { space: key, page: child });
 		expect(gone.httpCode).toBe('404');

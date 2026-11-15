@@ -54,7 +54,7 @@ liveDescribe('automation — live', () => {
 		const fromSpace = await run('automation', 'list', {
 			scope: 'space',
 			space: space.identifier,
-			includeDescendants: true,
+			options: { includeDescendants: true },
 			returnAll: true,
 		});
 		expect(fromSpace.map((a) => a.identifier)).toContain(automation);

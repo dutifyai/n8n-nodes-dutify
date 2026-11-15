@@ -216,8 +216,8 @@ describe('task', () => {
 				title: 'Fix login bug',
 				space: 'Engineering',
 				list: 'Backlog',
-				status: 'In Progress',
 				additionalFields: {
+					status: 'In Progress',
 					assignees: ['alice@dutify.ai'],
 					priority: 'High',
 					taskType: 'Bug',
@@ -266,9 +266,13 @@ describe('task', () => {
 			title: 'T',
 			space: 'Engineering',
 			list: 'lst_1',
-			status: '',
 			additionalFields: {},
 		});
+		expect(spec.body).toEqual({ title: 'T', list: 'lst_1' });
+	});
+
+	it('create: a Status added to Additional Fields and left blank is not sent', () => {
+		const spec = build(task, 'create', { title: 'T', list: 'lst_1', additionalFields: { status: '' } });
 		expect(spec.body).toEqual({ title: 'T', list: 'lst_1' });
 	});
 
@@ -299,7 +303,7 @@ describe('task', () => {
 		const { calls } = await run(
 			task,
 			'create',
-			{ title: 'T', space: 'Engineering', list: 'Backlog', status: 'Open', additionalFields: {} },
+			{ title: 'T', space: 'Engineering', list: 'Backlog', additionalFields: { status: 'Open' } },
 			[
 				{
 					spaces: [
@@ -330,7 +334,7 @@ describe('task', () => {
 		const { calls } = await run(
 			task,
 			'create',
-			{ title: 'T', space: '', list: 'Roadmap', status: '', additionalFields: {} },
+			{ title: 'T', space: '', list: 'Roadmap', additionalFields: {} },
 			[
 				{
 					spaces: [
@@ -350,7 +354,7 @@ describe('task', () => {
 		const { calls } = await run(
 			task,
 			'create',
-			{ title: 'T', space: '', list: 'Deep', status: '', additionalFields: {} },
+			{ title: 'T', space: '', list: 'Deep', additionalFields: {} },
 			[
 				{
 					spaces: [
@@ -378,7 +382,7 @@ describe('task', () => {
 		const { calls } = await run(
 			task,
 			'create',
-			{ title: 'T', space: '', list: 'lst_xyz', status: '', additionalFields: {} },
+			{ title: 'T', space: '', list: 'lst_xyz', additionalFields: {} },
 			[
 				{ spaces: [{ name: 'Engineering', lists: [{ identifier: 'lst_a', name: 'Backlog' }] }] },
 				{},
@@ -392,7 +396,7 @@ describe('task', () => {
 			run(
 				task,
 				'create',
-				{ title: 'T', space: '', list: 'Backlog', status: '', additionalFields: {} },
+				{ title: 'T', space: '', list: 'Backlog', additionalFields: {} },
 				[
 					{
 						spaces: [
@@ -409,7 +413,7 @@ describe('task', () => {
 		const { calls } = await run(
 			task,
 			'create',
-			{ title: 'T', space: '', list: '', status: '', additionalFields: { parent: 'PROJ-1' } },
+			{ title: 'T', space: '', list: '', additionalFields: { parent: 'PROJ-1' } },
 			[{}],
 		);
 		expect(calls).toHaveLength(1);

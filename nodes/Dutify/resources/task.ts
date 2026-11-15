@@ -282,11 +282,12 @@ function createSpec(p: ParamReader): RequestSpec {
 	const fields = p.get<IDataObject>('additionalFields', {});
 	const body: IDataObject = { title: p.get<string>('title') };
 	// `space` only narrows the list picker; the API has no such body field.
-	for (const key of ['list', 'status'] as const) {
-		const value = p.get<string>(key, '');
-		if (value) {
-			body[key] = value;
-		}
+	const list = p.get<string>('list', '');
+	if (list) {
+		body.list = list;
+	}
+	if (typeof fields.status === 'string' && fields.status) {
+		body.status = fields.status;
 	}
 	commonBody(fields, body, false);
 
@@ -435,8 +436,8 @@ const createOp: OperationDef = {
 		},
 		spaceOption,
 		listOption,
-		statusOption,
 		additionalFields([
+			statusOption,
 			assigneesOption,
 			taskTypeOption,
 			...commonTaskOptions(),

@@ -13,8 +13,11 @@ function opOf(resource: ResourceDef, name: string): OperationDef {
 	return found;
 }
 
+/** A field of the operation, at the top level or inside one of its collections. */
 const field = (resource: ResourceDef, operation: string, name: string) =>
-	opOf(resource, operation).fields.find((f) => f.name === name);
+	opOf(resource, operation)
+		.fields.flatMap((f) => [f, ...((f.type === 'collection' ? f.options : []) as typeof f[])])
+		.find((f) => f.name === name);
 
 const loaderOf = (resource: ResourceDef, operation: string, name: string) =>
 	(field(resource, operation, name)?.typeOptions as { loadOptionsMethod?: string } | undefined)
@@ -331,10 +334,16 @@ describe('recording', () => {
 		});
 	});
 
+	it('regenerateSummary saves by default when Save Result is left out', async () => {
+		const ctx = fakeContext(['The new summary']);
+		await opOf(recording, 'regenerateSummary').run!(ctx, reader({ recording: '7', options: {} }));
+		expect(ctx.calls[0].body).toEqual({ saveToDb: true });
+	});
+
 	it('regenerateSummary POSTs saveToDb (the body is required) and wraps the text', async () => {
 		const op = opOf(recording, 'regenerateSummary');
 		const ctx = fakeContext(['The new summary']);
-		const out = await op.run!(ctx, reader({ recording: '7', saveToDb: false }));
+		const out = await op.run!(ctx, reader({ recording: '7', options: { saveToDb: false } }));
 		expect(ctx.calls).toEqual([
 			{ method: 'POST', path: `${REC}/regenerate-summary`, body: { saveToDb: false } },
 		]);

@@ -174,17 +174,22 @@ const operations: OperationDef[] = [
 		fields: [
 			...scopeFields('Whether to list the automations of a space, a folder or a list'),
 			{
-				displayName: 'Include Descendants',
-				name: 'includeDescendants',
-				type: 'boolean',
-				default: false,
+				...collection('Options', 'options', [
+					{
+						displayName: 'Include Descendants',
+						name: 'includeDescendants',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to include the automations of the folders and lists below',
+					},
+				]),
 				displayOptions: { show: { scope: ['space', 'folder'] } },
-				description: 'Whether to include the automations of the folders and lists below',
 			},
 		],
 		build: (p) => {
 			const { scope, id } = targetOf(p);
-			const includeDescendants = scope !== 'list' && p.get<boolean>('includeDescendants', false);
+			const includeDescendants =
+				scope !== 'list' && p.get<IDataObject>('options', {}).includeDescendants === true;
 
 			return {
 				method: 'GET',

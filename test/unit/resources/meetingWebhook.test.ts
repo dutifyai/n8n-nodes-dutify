@@ -74,7 +74,7 @@ describe('sections', () => {
 
 	it('defaults to the four sections Hub uses when none are given', () => {
 		expect(DEFAULT_MEETING_SECTIONS).toEqual(['summary', 'keyPoints', 'actionItems', 'tasks']);
-		const sections = field('create', 'sections');
+		const sections = optionOf('create', 'additionalFields', 'sections');
 		expect(sections?.type).toBe('multiOptions');
 		expect(sections?.default).toEqual(DEFAULT_MEETING_SECTIONS);
 	});
@@ -97,9 +97,7 @@ describe('create', () => {
 			opOf('create').build!(
 				reader({
 					url: 'https://hooks.example.com/meeting',
-					secret: 's3cret',
-					sections: ['summary', 'transcript'],
-					additionalFields: {},
+					additionalFields: { secret: 's3cret', sections: ['summary', 'transcript'] },
 				}),
 			),
 		).toEqual({
@@ -117,9 +115,7 @@ describe('create', () => {
 		const spec = opOf('create').build!(
 			reader({
 				url: 'https://hooks.example.com/meeting',
-				secret: '',
-				sections: ['summary'],
-				additionalFields: { name: 'CRM', active: false },
+				additionalFields: { secret: '', sections: ['summary'], name: 'CRM', active: false },
 			}),
 		);
 		expect(spec.body).toEqual({
@@ -133,13 +129,20 @@ describe('create', () => {
 
 	it('an empty section list is sent as [] (metadata only), not dropped to the defaults', () => {
 		const spec = opOf('create').build!(
-			reader({ url: 'https://h.example.com', secret: 'x', sections: [], additionalFields: {} }),
+			reader({ url: 'https://h.example.com', additionalFields: { secret: 'x', sections: [] } }),
 		);
 		expect((spec.body as Record<string, unknown>).sections).toEqual([]);
 	});
 
+	it('sends the four default sections and no secret when neither is added', () => {
+		const spec = opOf('create').build!(
+			reader({ url: 'https://h.example.com', additionalFields: {} }),
+		);
+		expect(spec.body).toEqual({ url: 'https://h.example.com', sections: DEFAULT_MEETING_SECTIONS });
+	});
+
 	it('the secret is a password field and the URL is required', () => {
-		expect(field('create', 'secret')?.typeOptions?.password).toBe(true);
+		expect(optionOf('create', 'additionalFields', 'secret')?.typeOptions?.password).toBe(true);
 		expect(field('create', 'url')?.required).toBe(true);
 	});
 });

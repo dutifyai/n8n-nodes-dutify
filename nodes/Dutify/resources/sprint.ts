@@ -233,14 +233,16 @@ const operations: OperationDef[] = [
 		description: 'Move a sprint from in progress to done, optionally rolling unfinished tasks over',
 		fields: [
 			...sprintFields(),
-			{
-				...sprintField('rolloverSprint', 'Roll Over Unfinished Tasks to Name or ID'),
-				required: false,
-				description: `Sprint that receives the unfinished tasks. Leave empty to not roll anything over. ${EXPRESSION_HINT}`,
-			},
+			collection('Options', 'options', [
+				{
+					...sprintField('rolloverSprint', 'Roll Over Unfinished Tasks to Name or ID'),
+					required: false,
+					description: `Sprint that receives the unfinished tasks. Leave it out to not roll anything over. ${EXPRESSION_HINT}`,
+				},
+			]),
 		],
 		build: (p) => {
-			const rollover = p.get<string>('rolloverSprint', '');
+			const rollover = p.get<IDataObject>('options', {}).rolloverSprint;
 
 			return {
 				method: 'POST',

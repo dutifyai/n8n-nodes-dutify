@@ -122,23 +122,19 @@ const operations: OperationDef[] = [
 				placeholder: 'https://example.com/meeting-hook',
 				description: 'The public https:// endpoint that receives the processed meetings',
 			},
-			secretField(
-				'The key that signs every delivery. Keep it: Dutify never returns it, so a receiver needs this value to verify signatures. Without one, deliveries are not signed.',
-			),
-			sectionsField,
 			collection('Additional Fields', 'additionalFields', [
+				secretField(
+					'The key that signs every delivery. Keep it: Dutify never returns it, so a receiver needs this value to verify signatures. Without one, deliveries are not signed.',
+				),
+				sectionsField,
 				text('Name', 'name', 'A label for the webhook (up to 100 characters)'),
 				activeOption('Whether the webhook delivers meetings. Turn it off to create it paused.'),
 			]),
 		],
 		build: (p) => {
 			const fields = p.get<IDataObject>('additionalFields', {});
-			const body = hookBody({
-				url: p.get<string>('url'),
-				secret: p.get<string>('secret', ''),
-				...fields,
-			});
-			body.sections = p.get<string[]>('sections', DEFAULT_MEETING_SECTIONS);
+			const body = hookBody({ ...fields, url: p.get<string>('url') });
+			body.sections = (fields.sections as string[] | undefined) ?? DEFAULT_MEETING_SECTIONS;
 
 			return { method: 'POST', path: HOOKS, body };
 		},
